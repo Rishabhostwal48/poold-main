@@ -1,0 +1,20 @@
+{
+  "name": "poold",
+  "version": "1.0.0",
+  "description": "backend for the interview and data handling using express",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "shahnawaj",
+  "license": "MIT",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.81.1",
+    "dotenv": "^17.2.3",
+    "express": "^5.1.0",
+    "multer": "^2.0.2",
+    "socket.io": "^4.8.1",
+    "socket.io-client": "^4.8.1",
+    "uuid": "^9.0.0"
+  }
+}

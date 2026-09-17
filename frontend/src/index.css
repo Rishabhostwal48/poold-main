@@ -1,0 +1,312 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Vocal Recruiter Design System - Professional recruiting platform aesthetic */
+
+@layer base {
+  :root {
+    /* Core brand colors - Inspired by uploaded design (#0392B9, #01DBE1, #0198BA) */
+    --background: 195 25% 98%;
+    --foreground: 200 50% 8%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 200 50% 8%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 200 50% 8%;
+
+    /* Main brand blue (#0392B9 - hsl(195, 95%, 37%)) */
+    --primary: 195 95% 37%;
+    --primary-foreground: 0 0% 100%;
+    --primary-hover: 195 95% 32%;
+    --primary-subtle: 195 95% 95%;
+
+    /* Sophisticated secondary */
+    --secondary: 195 15% 96%;
+    --secondary-foreground: 200 50% 8%;
+
+    --muted: 195 15% 96%;
+    --muted-foreground: 200 20% 50%;
+
+    /* Bright cyan accent (#01DBE1 - hsl(182, 98%, 44%)) */
+    --accent: 182 98% 44%;
+    --accent-foreground: 0 0% 100%;
+    --accent-subtle: 182 98% 95%;
+
+    /* Success and warning states */
+    --success: 142 76% 36%;
+    --success-foreground: 0 0% 100%;
+    --success-subtle: 142 76% 95%;
+    --success-glow: 142 76% 85%;
+
+    --processing: 182 98% 44%;
+    --processing-foreground: 0 0% 100%;
+    --processing-subtle: 182 98% 95%;
+    --processing-glow: 182 98% 85%;
+
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 100%;
+    --warning-subtle: 38 92% 95%;
+
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 195 20% 88%;
+    --input: 195 20% 88%;
+    --ring: 195 95% 37%;
+
+    --radius: 0.75rem;
+
+    /* Ocean-inspired gradients */
+    --gradient-primary: linear-gradient(135deg, hsl(195, 95%, 37%), hsl(182, 98%, 44%));
+    --gradient-subtle: linear-gradient(135deg, hsl(195, 25%, 98%), hsl(182, 50%, 96%));
+    --gradient-card: linear-gradient(145deg, hsl(0, 0%, 100%), hsl(195, 30%, 98%));
+
+    /* Ocean-themed shadows */
+    --shadow-soft: 0 2px 8px -2px hsl(195, 95%, 37% / 0.12);
+    --shadow-medium: 0 8px 25px -5px hsl(195, 95%, 37% / 0.18);
+    --shadow-strong: 0 16px 40px -8px hsl(195, 95%, 37% / 0.25);
+
+    /* Animation */
+    --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    --transition-bounce: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+
+    /* Audio visualization with theme colors */
+    --audio-active: 182 98% 44%;
+    --audio-inactive: 195 20% 70%;
+    --audio-recording: 0 84.2% 60.2%;
+
+    --sidebar-background: 0 0% 98%;
+    --sidebar-foreground: 240 5.3% 26.1%;
+    --sidebar-primary: 240 5.9% 10%;
+    --sidebar-primary-foreground: 0 0% 98%;
+    --sidebar-accent: 240 4.8% 95.9%;
+    --sidebar-accent-foreground: 240 5.9% 10%;
+    --sidebar-border: 220 13% 91%;
+    --sidebar-ring: 217.2 91.2% 59.8%;
+  }
+
+  .dark {
+    /* Dark theme with ocean-inspired colors */
+    --background: 195 50% 4%;
+    --foreground: 195 25% 95%;
+
+    --card: 195 45% 6%;
+    --card-foreground: 195 25% 95%;
+
+    --popover: 195 45% 6%;
+    --popover-foreground: 195 25% 95%;
+
+    /* Brighter primary in dark mode (#0198BA - hsl(195, 95%, 37%)) */
+    --primary: 195 95% 45%;
+    --primary-foreground: 195 50% 4%;
+    --primary-hover: 195 95% 40%;
+    --primary-subtle: 195 95% 15%;
+
+    --secondary: 195 25% 12%;
+    --secondary-foreground: 195 25% 90%;
+
+    --muted: 195 25% 12%;
+    --muted-foreground: 195 15% 65%;
+
+    /* Bright cyan accent maintains vibrancy */
+    --accent: 182 98% 50%;
+    --accent-foreground: 195 50% 4%;
+    --accent-subtle: 182 98% 15%;
+
+    --success: 142 76% 45%;
+    --success-foreground: 195 50% 4%;
+    --success-subtle: 142 76% 15%;
+    --success-glow: 142 76% 25%;
+
+    --processing: 182 98% 50%;
+    --processing-foreground: 195 50% 4%;
+    --processing-subtle: 182 98% 15%;
+    --processing-glow: 182 98% 25%;
+
+    --warning: 38 92% 55%;
+    --warning-foreground: 195 50% 4%;
+    --warning-subtle: 38 92% 15%;
+
+    --destructive: 0 84.2% 65%;
+    --destructive-foreground: 195 50% 4%;
+
+    --border: 195 25% 18%;
+    --input: 195 25% 18%;
+    --ring: 195 95% 45%;
+
+    /* Dark ocean gradients */
+    --gradient-primary: linear-gradient(135deg, hsl(195, 95%, 45%), hsl(182, 98%, 50%));
+    --gradient-subtle: linear-gradient(135deg, hsl(195, 50%, 4%), hsl(195, 45%, 6%));
+    --gradient-card: linear-gradient(145deg, hsl(195, 45%, 6%), hsl(195, 45%, 4%));
+
+    --shadow-soft: 0 2px 8px -2px hsl(0, 0%, 0% / 0.4);
+    --shadow-medium: 0 8px 25px -5px hsl(0, 0%, 0% / 0.5);
+    --shadow-strong: 0 16px 40px -8px hsl(0, 0%, 0% / 0.6);
+
+    --audio-active: 182 98% 50%;
+    --audio-inactive: 195 15% 40%;
+    --audio-recording: 0 84.2% 65%;
+
+    --sidebar-background: 195 50% 6%;
+    --sidebar-foreground: 195 25% 90%;
+    --sidebar-primary: 195 95% 45%;
+    --sidebar-primary-foreground: 195 50% 4%;
+    --sidebar-accent: 195 25% 15%;
+    --sidebar-accent-foreground: 195 25% 90%;
+    --sidebar-border: 195 25% 15%;
+    --sidebar-ring: 195 95% 45%;
+  }
+}
+
+@layer components {
+  /* Hero gradient backgrounds */
+  .bg-gradient-hero {
+    background: var(--gradient-primary);
+  }
+  
+  .bg-gradient-subtle {
+    background: var(--gradient-subtle);
+  }
+  
+  .bg-gradient-card {
+    background: var(--gradient-card);
+  }
+
+  /* Custom shadows */
+  .shadow-soft {
+    box-shadow: var(--shadow-soft);
+  }
+  
+  .shadow-medium {
+    box-shadow: var(--shadow-medium);
+  }
+  
+  .shadow-strong {
+    box-shadow: var(--shadow-strong);
+  }
+
+  /* Animation utilities */
+  .transition-smooth {
+    transition: var(--transition-smooth);
+  }
+  
+  .transition-bounce {
+    transition: var(--transition-bounce);
+  }
+
+  /* Audio visualization classes */
+  .audio-active {
+    color: hsl(var(--audio-active));
+  }
+  
+  .audio-inactive {
+    color: hsl(var(--audio-inactive));
+  }
+  
+  .audio-recording {
+    color: hsl(var(--audio-recording));
+  }
+  
+  .bg-audio-active {
+    background-color: hsl(var(--audio-active));
+  }
+  
+  .bg-audio-inactive {
+    background-color: hsl(var(--audio-inactive));
+  }
+  
+  .bg-audio-recording {
+    background-color: hsl(var(--audio-recording));
+  }
+
+  /* Interview progress indicators */
+  .progress-step {
+    @apply flex items-center justify-center w-8 h-8 rounded-full text-sm font-medium transition-smooth;
+  }
+  
+  .progress-step.active {
+    @apply bg-primary text-primary-foreground shadow-medium;
+  }
+  
+  .progress-step.completed {
+    @apply bg-success text-success-foreground;
+  }
+  
+  .progress-step.inactive {
+    @apply bg-muted text-muted-foreground;
+  }
+
+  /* VU Meter styles */
+  .vu-bar {
+    @apply transition-all duration-75 ease-out rounded-sm;
+  }
+  
+  .vu-bar.active {
+    @apply bg-audio-active;
+  }
+  
+  .vu-bar.recording {
+    @apply bg-audio-recording animate-pulse;
+  }
+  
+  .vu-bar.inactive {
+    @apply bg-audio-inactive;
+  }
+
+  /* Transcript message bubbles */
+  .message-bubble {
+    @apply rounded-lg px-4 py-3 max-w-[80%] transition-smooth;
+  }
+  
+  .message-bubble.interviewer {
+    @apply bg-primary/10 text-foreground border border-primary/20 mr-auto;
+  }
+  
+  .message-bubble.candidate {
+    @apply bg-accent/10 text-foreground border border-accent/20 ml-auto;
+  }
+
+  /* Evidence highlight effect */
+  .evidence-highlight {
+    @apply bg-success/20 border-l-4 border-success px-2 py-1 rounded transition-smooth;
+  }
+  
+  .evidence-highlight:hover {
+    @apply bg-success/30;
+  }
+
+  /* Coverage progress ring */
+  .progress-ring {
+    @apply transition-all duration-500 ease-out;
+  }
+
+  /* CV processing success states */
+  .cv-success-card {
+    @apply bg-gradient-to-br from-success-subtle to-success-glow border border-success/30 shadow-soft;
+  }
+  
+  .cv-processing-card {
+    @apply bg-gradient-to-br from-processing-subtle to-processing-glow border border-processing/30 shadow-soft animate-pulse;
+  }
+
+  /* Enhanced progress indicators */
+  .progress-indicator-success {
+    @apply bg-success text-success-foreground shadow-medium ring-2 ring-success-glow;
+  }
+  
+  .progress-indicator-processing {
+    @apply bg-processing text-processing-foreground shadow-medium ring-2 ring-processing-glow animate-pulse;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+}

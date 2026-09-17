@@ -1,0 +1,13 @@
+project_id = "sxfjoqvwtjsiskqwftln"
+
+[functions.interview-websocket]
+verify_jwt = false
+
+[functions.tts-elevenlabs]
+verify_jwt = false
+
+[functions.realtime-session]
+verify_jwt = false
+
+[functions.save-maya-interview]
+verify_jwt = false

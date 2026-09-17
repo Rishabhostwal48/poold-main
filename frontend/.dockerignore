@@ -1,0 +1,48 @@
+node_modules
+dist
+.env
+.DS_Store
+/.vscode
+# Dependencies
+node_modules
+npm-debug.log
+yarn-error.log
+
+# Build outputs
+dist
+build
+.next
+
+# Development files
+.git
+.gitignore
+.env
+.env.local
+.env*.local
+
+# Documentation
+README.md
+docs
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Supabase
+supabase/.branches
+supabase/.temp
+
+# Logs
+logs
+*.log
