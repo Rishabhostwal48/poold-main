@@ -29,6 +29,7 @@ app.use((err, req, res, next) => {
 app.get('/', (req, res) => {
   res.send('Hello World!');
 });
+app.use('/auth', require('./service/auth'));
 app.use('/parse-cv', require('./service/parse-cv'));   //
 app.use('/upload-cv', require('./service/upload-cv'));//
 app.use('/analyze-job-desc', require('./service/analyze-job-desc'));//

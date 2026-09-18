@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { supabase } from '@/integrations/supabase/client';
+import { signIn, signUp } from '@/lib/backendAuth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -29,12 +29,8 @@ export default function Auth() {
 
     setLoading(true);
     try {
-      const { error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
-
-      if (error) throw error;
+      const { session } = await signIn(email, password);
+      localStorage.setItem('backend_session', JSON.stringify(session));
 
       toast.success('Logged in successfully');
       navigate('/');
@@ -60,23 +56,9 @@ export default function Auth() {
 
     setLoading(true);
     try {
-      const redirectUrl = `${window.location.origin}/`;
-      
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          emailRedirectTo: redirectUrl,
-          data: {
-            name,
-            roles: selectedRoles, // pass roles for server-side trigger
-          },
-        },
-      });
+      await signUp(email, password, name, selectedRoles);
 
-      if (error) throw error;
-
-      toast.success('Account created! Check your email to verify.');
+      toast.success('Account created! You can now sign in.');
       navigate('/');
     } catch (error: any) {
       toast.error(error.message || 'Failed to sign up');
