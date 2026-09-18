@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { BackendSession, BackendUser } from '@/lib/backendAuth';
+import { supabase } from '@/integrations/supabase/client';
 
 interface AuthContextType {
   user: BackendUser | null;
@@ -16,14 +17,56 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const storedSession = localStorage.getItem('backend_session');
-    const parsedSession = storedSession ? JSON.parse(storedSession) as BackendSession : null;
-    setSession(parsedSession);
-    setUser(parsedSession?.user ?? null);
-    setLoading(false);
+    let mounted = true;
+
+    const restoreSession = async () => {
+      let { data: { session: authSession } } = await supabase.auth.getSession();
+
+      // Migrate sessions created by the old custom storage path once.
+      if (!authSession) {
+        const storedSession = localStorage.getItem('backend_session');
+        if (storedSession) {
+          try {
+            const parsedSession = JSON.parse(storedSession) as BackendSession;
+            if (parsedSession.access_token && parsedSession.refresh_token) {
+              const result = await supabase.auth.setSession({
+                access_token: parsedSession.access_token,
+                refresh_token: parsedSession.refresh_token,
+              });
+              authSession = result.data.session;
+            }
+          } catch {
+            await supabase.auth.signOut();
+          } finally {
+            localStorage.removeItem('backend_session');
+          }
+        }
+      }
+
+      if (mounted) {
+        setSession(authSession as BackendSession | null);
+        setUser(authSession?.user as BackendUser | null);
+        setLoading(false);
+      }
+    };
+
+    void restoreSession();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      if (!mounted) return;
+      setSession(nextSession as BackendSession | null);
+      setUser(nextSession?.user as BackendUser | null);
+      setLoading(false);
+    });
+
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
   }, []);
 
   const signOut = async () => {
+    await supabase.auth.signOut();
     localStorage.removeItem('backend_session');
     setSession(null);
     setUser(null);

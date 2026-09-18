@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
 import { Checkbox } from '@/components/ui/checkbox';
+import { supabase } from '@/integrations/supabase/client';
 
 type UserRole = 'admin' | 'interviewer' | 'interviewee';
 
@@ -30,7 +31,12 @@ export default function Auth() {
     setLoading(true);
     try {
       const { session } = await signIn(email, password);
-      localStorage.setItem('backend_session', JSON.stringify(session));
+      if (!session.refresh_token) throw new Error('Login response did not include a refresh token');
+      const { error } = await supabase.auth.setSession({
+        access_token: session.access_token,
+        refresh_token: session.refresh_token,
+      });
+      if (error) throw error;
 
       toast.success('Logged in successfully');
       navigate('/');
@@ -59,7 +65,7 @@ export default function Auth() {
       await signUp(email, password, name, selectedRoles);
 
       toast.success('Account created! You can now sign in.');
-      navigate('/');
+        navigate('/auth');
     } catch (error: any) {
       toast.error(error.message || 'Failed to sign up');
     } finally {

@@ -37,7 +37,8 @@ export function UserMenu({ showBackButton = true }: UserMenuProps) {
 
   const handleDeleteAccount = async () => {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { session } } = await supabase.auth.getSession();
+      const user = session?.user;
       
       if (!user) {
         toast.error('No user found');
@@ -53,9 +54,14 @@ export function UserMenu({ showBackButton = true }: UserMenuProps) {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
         },
-        body: { userId: user.id }
-      }).then((res)=>res.json()).then((resData)=>{
+        body: JSON.stringify({ userId: user.id })
+      }).then(async (res)=> {
+        const resData = await res.json();
+        if (!res.ok) throw new Error(resData.error || 'Failed to delete account');
+        return resData;
+      }).then((resData)=>{
         data=resData;
       }).catch((err)=>{
         error=err;

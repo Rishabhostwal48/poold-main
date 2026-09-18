@@ -106,28 +106,30 @@ router.post('/', async (req, res) => {
 
     console.log('[Realtime] Creating ephemeral session...');
 
-    const response = await fetch('https://api.openai.com/v1/realtime/sessions', {
+    const response = await fetch('https://api.openai.com/v1/realtime/client_secrets', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${OPENAI_API_KEY}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'gpt-4o-realtime-preview-2024-12-17',
-        voice: 'verse',
-        modalities: ['audio', 'text'],
-        instructions: MAYA_SYSTEM_PROMPT,
-        turn_detection: {
-          type: 'server_vad',
-          threshold: 0.5,
-          prefix_padding_ms: 300,
-          silence_duration_ms: 400,
+        session: {
+          type: 'realtime',
+          model: 'gpt-realtime',
+          instructions: MAYA_SYSTEM_PROMPT,
+          audio: {
+            input: {
+              transcription: { model: 'gpt-4o-mini-transcribe' },
+              turn_detection: {
+                type: 'server_vad',
+                threshold: 0.5,
+                prefix_padding_ms: 300,
+                silence_duration_ms: 400,
+              },
+            },
+            output: { voice: 'verse' },
+          },
         },
-        input_audio_transcription: {
-          model: 'whisper-1',
-        },
-        temperature: 0.8,
-        max_response_output_tokens: 4096,
       }),
     });
 

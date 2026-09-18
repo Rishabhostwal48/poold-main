@@ -40,7 +40,7 @@ const App = () => (
             <Route path="/interviewee" element={<RoleProtectedRoute allowedRoles={['interviewee']}><IntervieweeDashboard /></RoleProtectedRoute>} />
             <Route path="/admin" element={<RoleProtectedRoute allowedRoles={['admin']}><AdminDashboard /></RoleProtectedRoute>} />
             <Route path="/job-postings" element={<RoleProtectedRoute allowedRoles={['interviewer', 'admin']}><JobPostings /></RoleProtectedRoute>} />
-            <Route path="/browse-jobs" element={<RoleProtectedRoute allowedRoles={['interviewee']}><BrowseJobs /></RoleProtectedRoute>} />
+            <Route path="/browse-jobs" element={<ProtectedRoute><BrowseJobs /></ProtectedRoute>} />
             <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />

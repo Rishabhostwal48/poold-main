@@ -15,6 +15,13 @@ const supabase = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSessi
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 
+async function ensureBucket() {
+  const { error } = await supabase.storage.createBucket(BUCKET, { public: false });
+  if (error && !error.message.toLowerCase().includes('already exists')) {
+    throw new Error(`Storage bucket setup failed: ${error.message}`);
+  }
+}
+
 // CORS preflight for this route (if app-level CORS isn't configured)
 router.options('/', (req, res) => {
   res.set({
@@ -34,6 +41,8 @@ router.post('/', upload.single('file'), async (req, res) => {
     if (!type.toLowerCase().includes('pdf')) {
       return res.status(415).json({ error: `Unsupported contentType: ${type}` });
     }
+
+    await ensureBucket();
 
     const bytes = file.buffer;
     const objectPath = `uploads/${randomUUID()}.pdf`;

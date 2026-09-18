@@ -1,5 +1,16 @@
 -- Create tables for vocal recruiting application
 
+-- Shared trigger function used by the updated_at triggers below.
+CREATE OR REPLACE FUNCTION public.update_updated_at_column()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    NEW.updated_at = now();
+    RETURN NEW;
+END;
+$$;
+
 -- Job postings table
 CREATE TABLE public.job_postings (
     id UUID NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
+import { listActiveJobPostings } from '@/lib/jobPostingsApi';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -36,14 +37,8 @@ export default function BrowseJobs() {
 
   const fetchJobPostings = async () => {
     try {
-      const { data, error } = await supabase
-        .from('job_postings')
-        .select('*')
-        .eq('status', 'active')
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-      setJobPostings(data || []);
+      const { data } = await listActiveJobPostings<JobPosting>();
+      setJobPostings(data);
     } catch (error: any) {
       toast.error('Failed to fetch job postings');
       console.error(error);

@@ -1,4 +1,4 @@
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000';
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL;
 
 export interface BackendUser {
   id: string;
@@ -17,6 +17,10 @@ export interface BackendSession {
 }
 
 async function request<T>(path: string, body: object): Promise<T> {
+  if (!BACKEND_URL) {
+    throw new Error('Authentication is not configured: VITE_BACKEND_URL is missing');
+  }
+
   const response = await fetch(`${BACKEND_URL}/auth/${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

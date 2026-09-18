@@ -5,11 +5,25 @@ const socketIo = require('socket.io');
 const cors = require('cors');
 const port = process.env.PORT || 3000;
 
-// CORS middleware - allow all origins
+const allowedOrigins = new Set([
+  process.env.FRONTEND_ORIGIN,
+  'http://localhost:8080',
+  'http://127.0.0.1:8080',
+].filter(Boolean));
+
 app.use(cors({
-  origin: '*',
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.has(origin)) return callback(null, true);
+    return callback(new Error('Origin is not allowed by CORS'));
+  },
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'x-client-info', 'apikey'],
+  allowedHeaders: [
+    'Content-Type',
+    'Authorization',
+    'x-client-info',
+    'apikey',
+    'x-supabase-api-version'
+  ],
   credentials: false
 }));
 
@@ -30,6 +44,7 @@ app.get('/', (req, res) => {
   res.send('Hello World!');
 });
 app.use('/auth', require('./service/auth'));
+app.use('/job-postings', require('./service/job-postings'));
 app.use('/parse-cv', require('./service/parse-cv'));   //
 app.use('/upload-cv', require('./service/upload-cv'));//
 app.use('/analyze-job-desc', require('./service/analyze-job-desc'));//

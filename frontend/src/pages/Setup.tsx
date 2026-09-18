@@ -23,6 +23,7 @@ import { generateInterviewQuestions } from '@/services/aiServices';
 import { computeGapAnalysis } from '@/lib/gap';
 import { saveCVAnalysis, saveGapAnalysis } from '@/lib/analysisStorage';
 import { supabase } from '@/integrations/supabase/client';
+import { getJobPosting } from '@/lib/jobPostingsApi';
 import type { CandidateProfile, JobProfile } from '@/types';
 
 export default function Setup() {
@@ -69,13 +70,14 @@ export default function Setup() {
         setJdProcessing(true);
         
         // Fetch job posting details
-        const { data: jobPosting, error } = await supabase
-          .from('job_postings')
-          .select('*')
-          .eq('id', jobId)
-          .single();
-        
-        if (error) {
+        let jobPosting;
+        try {
+          ({ data: jobPosting } = await getJobPosting<{
+            title: string;
+            description: string | null;
+            requirements: string | null;
+          }>(jobId));
+        } catch {
           toast({
             variant: "destructive",
             title: "Error",
