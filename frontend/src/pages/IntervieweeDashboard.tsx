@@ -33,17 +33,19 @@ export default function IntervieweeDashboard() {
   };
 
   return (
-    <div className="min-h-screen bg-background p-8">
-      <div className="flex justify-between items-center mb-2">
+    <div className="dashboard-page">
+      <div className="dashboard-content">
+      <div className="dashboard-header flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-end">
         <div>
-          <h1 className="text-4xl font-bold">Welcome to Your Dashboard</h1>
+          <div className="dashboard-kicker">Candidate // Skills profile online</div>
+          <h1 className="dashboard-title">Your command center</h1>
           <p className="text-muted-foreground">Manage your career journey all in one place</p>
         </div>
         <UserMenu />
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8 mt-8">
-        <Card>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8 mt-8">
+        <Card className="dashboard-card dashboard-stat">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <FileText className="h-5 w-5" />
@@ -55,7 +57,7 @@ export default function IntervieweeDashboard() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="dashboard-card dashboard-stat">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Target className="h-5 w-5" />
@@ -67,7 +69,7 @@ export default function IntervieweeDashboard() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="dashboard-card dashboard-stat">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Video className="h-5 w-5" />
@@ -80,8 +82,8 @@ export default function IntervieweeDashboard() {
         </Card>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <Card>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <Card className="dashboard-card">
           <CardHeader>
             <CardTitle>Browse Job Openings</CardTitle>
             <CardDescription>Find and apply to active job postings</CardDescription>
@@ -94,7 +96,7 @@ export default function IntervieweeDashboard() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="dashboard-card">
           <CardHeader>
             <CardTitle>Upload & Analyze CV</CardTitle>
             <CardDescription>Get AI-powered insights on your resume</CardDescription>
@@ -107,7 +109,7 @@ export default function IntervieweeDashboard() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="dashboard-card">
           <CardHeader>
             <CardTitle>Start Interview Practice</CardTitle>
             <CardDescription>Practice with AI-powered mock interviews</CardDescription>
@@ -120,7 +122,7 @@ export default function IntervieweeDashboard() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="dashboard-card">
           <CardHeader>
             <CardTitle>Gap Analysis</CardTitle>
             <CardDescription>Compare your skills with job requirements</CardDescription>
@@ -133,7 +135,7 @@ export default function IntervieweeDashboard() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="dashboard-card">
           <CardHeader>
             <CardTitle>View Summary</CardTitle>
             <CardDescription>Review your interview performance</CardDescription>
@@ -145,6 +147,7 @@ export default function IntervieweeDashboard() {
             </Button>
           </CardContent>
         </Card>
+      </div>
       </div>
     </div>
   );

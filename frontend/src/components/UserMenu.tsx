@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
 import { getAccessToken } from '@/lib/backendAuth';
 import { toast } from 'sonner';
+import { ThemeToggle } from '@/components/ThemeToggle';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -68,6 +69,7 @@ export function UserMenu({ showBackButton = true }: UserMenuProps) {
 
   return (
     <div className="flex gap-2">
+      <ThemeToggle />
       <Button
         variant="ghost"
         size="sm"

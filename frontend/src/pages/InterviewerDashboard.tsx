@@ -56,9 +56,14 @@ export default function InterviewerDashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-background p-8">
-      <div className="flex justify-between items-center mb-8">
-        <h1 className="text-4xl font-bold">Interviewer Dashboard</h1>
+    <div className="dashboard-page">
+      <div className="dashboard-content">
+      <div className="dashboard-header flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-end">
+        <div>
+          <div className="dashboard-kicker">Recruiter // Operations console</div>
+          <h1 className="dashboard-title">Interviewer dashboard</h1>
+          <p className="text-muted-foreground">Monitor candidate signal across active hiring workflows.</p>
+        </div>
         <div className="flex gap-2">
           <Button
             onClick={() => navigate('/job-postings')}
@@ -79,7 +84,7 @@ export default function InterviewerDashboard() {
         </TabsList>
 
         <TabsContent value="interviews" className="space-y-4">
-          <Card>
+          <Card className="dashboard-card">
             <CardHeader>
               <CardTitle>Interview Sessions</CardTitle>
               <CardDescription>All interviews from your job postings</CardDescription>
@@ -161,7 +166,7 @@ export default function InterviewerDashboard() {
         </TabsContent>
 
         <TabsContent value="gaps" className="space-y-4">
-          <Card>
+          <Card className="dashboard-card">
             <CardHeader>
               <CardTitle>Gap Analysis Results</CardTitle>
               <CardDescription>Skills gap analysis per candidate</CardDescription>
@@ -239,7 +244,7 @@ export default function InterviewerDashboard() {
         </TabsContent>
 
         <TabsContent value="responses" className="space-y-4">
-          <Card>
+          <Card className="dashboard-card">
             <CardHeader>
               <CardTitle>Interview Responses</CardTitle>
               <CardDescription>Recent candidate responses to interview questions</CardDescription>
@@ -252,7 +257,7 @@ export default function InterviewerDashboard() {
               ) : (
                 <div className="space-y-4">
                   {responses.slice(0, 10).map((response) => (
-                    <Card key={response.id} className="bg-accent/5">
+                    <Card key={response.id} className="dashboard-card bg-accent/5">
                       <CardHeader>
                         <CardTitle className="text-lg">
                           {response.question_text || response.interview_questions?.question_text}
@@ -292,6 +297,7 @@ export default function InterviewerDashboard() {
           </Card>
         </TabsContent>
       </Tabs>
+      </div>
     </div>
   );
 }
