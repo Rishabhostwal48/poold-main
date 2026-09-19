@@ -1,10 +1,10 @@
 // interview-websocket.js — Express router with socket.io for WebSocket support
 // WebSocket server for Maya (audio-only)
 // Streams PCM16 frames from client, wraps into WAV, sends to OpenAI Whisper STT,
-// generates next Maya question via OpenAI, and persists to Supabase.
+// generates next Maya question via OpenAI, and persists to PostgreSQL.
 const express = require('express');
 const router = express.Router();
-const { createClient } = require('@supabase/supabase-js');
+const db = require('../db');
 const dotenv = require('dotenv');
 dotenv.config();
 
@@ -111,10 +111,13 @@ function setupWebSocketHandlers(io) {
       return Math.floor(samples / sampleRate * 1000);
     }
 
-    // ---- Supabase ----
-    const supabaseUrl = process.env.SUPABASE_URL;
-    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    const supabase = createClient(supabaseUrl, supabaseKey);
+    // ---- Database (pg pool) ----
+    // Maya interview data is persisted via the centralized PostgreSQL pool.
+    // No authentication is performed for Maya interview saves (public endpoint).
+    // DEFERRED SECURITY REVIEW: Maya interviews are created without user
+    // authentication. This matches the existing Supabase behavior (RLS policy
+    // allowed inserts from any authenticated or anon caller). Evaluate whether
+    // authentication should be required in a future security review loop.
 
     // ---- Maya System Prompt ----
     function getMayaSystemPrompt() {
@@ -428,27 +431,42 @@ ${currentFollowUpCount < MAX_FOLLOW_UPS_PER_QUESTION ? `You can ask ${MAX_FOLLOW
     async function saveInterviewData() {
       try {
         const durationSeconds = Math.floor((Date.now() - startTime) / 1000);
-        await supabase.from('maya_interviews').insert({
-          session_id: sessionId,
-          candidate_name: candidateName || null,
-          candidate_phone: candidatePhone || null,
-          started_at: new Date(startTime).toISOString(),
-          ended_at: new Date().toISOString(),
-          duration_seconds: durationSeconds,
-          questions: conversationHistory
+        const questionsJson = JSON.stringify(
+          conversationHistory
             .filter((m) => m.role === 'assistant')
             .map((m) => ({
               question: m.content.replace(/\[\[END_QUESTION\]\]/g, '').trim(),
               timestamp: new Date().toISOString()
-            })),
-          responses: conversationHistory
+            }))
+        );
+        const responsesJson = JSON.stringify(
+          conversationHistory
             .filter((m) => m.role === 'user')
             .map((m) => ({
               response: m.content,
               timestamp: new Date().toISOString()
-            })),
-          transcript: interviewTranscript
-        });
+            }))
+        );
+        const transcriptJson = JSON.stringify(interviewTranscript);
+
+        await db.query(
+          `INSERT INTO maya_interviews
+             (session_id, candidate_name, candidate_phone,
+              started_at, ended_at, duration_seconds,
+              questions, responses, transcript)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+          [
+            sessionId,
+            candidateName || null,
+            candidatePhone || null,
+            new Date(startTime).toISOString(),
+            new Date().toISOString(),
+            durationSeconds,
+            questionsJson,
+            responsesJson,
+            transcriptJson
+          ]
+        );
         console.log('✅ Interview data saved', {
           sessionId,
           candidateName,

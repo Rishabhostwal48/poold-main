@@ -1,32 +1,16 @@
 const express = require('express');
 const dotenv = require('dotenv');
-const { createClient } = require('@supabase/supabase-js');
+const db = require('../db');
+const { authenticate } = require('../middleware/authenticate');
 
 dotenv.config();
 
 const router = express.Router();
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY,
-  { auth: { persistSession: false, autoRefreshToken: false } }
-);
 
-async function authenticate(req, res, next) {
-  const authHeader = req.get('Authorization') || '';
-  if (!authHeader.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'Authentication required' });
-  }
 
-  const token = authHeader.replace(/^Bearer\s+/i, '');
-  const { data, error } = await supabase.auth.getUser(token);
-  if (error || !data.user) {
-    return res.status(401).json({ error: 'Invalid or expired session' });
-  }
-
-  req.user = data.user;
-  next();
-}
-
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 const fields = [
   'title',
   'company_name',
@@ -49,112 +33,145 @@ function pickFields(body) {
 
 router.use(authenticate);
 
+// ---------------------------------------------------------------------------
+// GET /job-postings/active — list all active job postings (any authenticated user)
+// Authorization: Supabase RLS allowed any authenticated user to read active postings.
+//   Preserved: authentication required, no ownership check needed.
+// ---------------------------------------------------------------------------
 router.get('/active', async (req, res) => {
-  const { data, error } = await supabase
-    .from('job_postings')
-    .select('*')
-    .eq('status', 'active')
-    .order('created_at', { ascending: false });
-
-  if (error) {
-    console.error('List active job postings error:', error);
-    return res.status(500).json({ error: error.message || 'Failed to fetch active job postings' });
+  try {
+    const { rows } = await db.query(
+      'SELECT * FROM job_postings WHERE status = $1 ORDER BY created_at DESC',
+      ['active']
+    );
+    return res.json({ data: rows });
+  } catch (err) {
+    console.error('List active job postings error:', err.message);
+    return res.status(500).json({ error: 'Failed to fetch active job postings' });
   }
-
-  return res.json({ data: data || [] });
 });
 
+// ---------------------------------------------------------------------------
+// GET /job-postings — list current user's job postings
+// Authorization: Supabase RLS enforced auth.uid() = user_id.
+//   Preserved: WHERE user_id = req.user.id
+// ---------------------------------------------------------------------------
 router.get('/', async (req, res) => {
-  const { data, error } = await supabase
-    .from('job_postings')
-    .select('*')
-    .eq('user_id', req.user.id)
-    .order('created_at', { ascending: false });
-
-  if (error) {
-    console.error('List job postings error:', error);
-    return res.status(500).json({ error: error.message || 'Failed to fetch job postings' });
+  try {
+    const { rows } = await db.query(
+      'SELECT * FROM job_postings WHERE user_id = $1 ORDER BY created_at DESC',
+      [req.user.id]
+    );
+    return res.json({ data: rows });
+  } catch (err) {
+    console.error('List job postings error:', err.message);
+    return res.status(500).json({ error: 'Failed to fetch job postings' });
   }
-
-  return res.json({ data: data || [] });
 });
 
+// ---------------------------------------------------------------------------
+// GET /job-postings/:id — get a single active job posting
+// Authorization: Supabase RLS allowed any authenticated user to view active postings.
+//   Preserved: only returns if status = 'active'.
+// ---------------------------------------------------------------------------
 router.get('/:id', async (req, res) => {
-  const { data, error } = await supabase
-    .from('job_postings')
-    .select('*')
-    .eq('id', req.params.id)
-    .eq('status', 'active')
-    .maybeSingle();
-
-  if (error) {
-    console.error('Get job posting error:', error);
-    return res.status(500).json({ error: error.message || 'Failed to fetch job posting' });
+  try {
+    const { rows } = await db.query(
+      'SELECT * FROM job_postings WHERE id = $1 AND status = $2 LIMIT 1',
+      [req.params.id, 'active']
+    );
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Job posting not found' });
+    }
+    return res.json({ data: rows[0] });
+  } catch (err) {
+    console.error('Get job posting error:', err.message);
+    return res.status(500).json({ error: 'Failed to fetch job posting' });
   }
-  if (!data) return res.status(404).json({ error: 'Job posting not found' });
-
-  return res.json({ data });
 });
 
+// ---------------------------------------------------------------------------
+// POST /job-postings — create a new job posting
+// Authorization: Supabase RLS allowed any authenticated user to insert with
+//   user_id = auth.uid(). Preserved: user_id is set to req.user.id server-side.
+// ---------------------------------------------------------------------------
 router.post('/', async (req, res) => {
   const values = pickFields(req.body);
   if (!values.title || !values.description) {
     return res.status(400).json({ error: 'Title and description are required' });
   }
 
-  const { data, error } = await supabase
-    .from('job_postings')
-    .insert({ ...values, user_id: req.user.id })
-    .select('*')
-    .single();
+  try {
+    // Build dynamic INSERT from the picked fields
+    const cols = ['user_id', ...Object.keys(values)];
+    const vals = [req.user.id, ...Object.values(values)];
+    const placeholders = cols.map((_, i) => `$${i + 1}`);
 
-  if (error) {
-    console.error('Create job posting error:', error);
-    return res.status(500).json({ error: error.message || 'Failed to create job posting' });
+    const { rows } = await db.query(
+      `INSERT INTO job_postings (${cols.join(', ')}) VALUES (${placeholders.join(', ')}) RETURNING *`,
+      vals
+    );
+    return res.status(201).json({ data: rows[0] });
+  } catch (err) {
+    console.error('Create job posting error:', err.message);
+    return res.status(500).json({ error: 'Failed to create job posting' });
   }
-
-  return res.status(201).json({ data });
 });
 
+// ---------------------------------------------------------------------------
+// PATCH /job-postings/:id — update own job posting
+// Authorization: Supabase RLS enforced auth.uid() = user_id for UPDATE.
+//   Preserved: WHERE id = $id AND user_id = req.user.id
+// ---------------------------------------------------------------------------
 router.patch('/:id', async (req, res) => {
   const values = pickFields(req.body);
   if (Object.keys(values).length === 0) {
     return res.status(400).json({ error: 'No job posting fields provided' });
   }
 
-  const { data, error } = await supabase
-    .from('job_postings')
-    .update(values)
-    .eq('id', req.params.id)
-    .eq('user_id', req.user.id)
-    .select('*')
-    .maybeSingle();
+  try {
+    // Build dynamic SET clause: field1 = $1, field2 = $2, ...
+    const entries = Object.entries(values);
+    const setClauses = entries.map(([col], i) => `${col} = $${i + 1}`);
+    const params = entries.map(([, val]) => val);
+    // Append id and user_id as the last two params
+    const idIdx = params.length + 1;
+    const userIdx = params.length + 2;
+    params.push(req.params.id, req.user.id);
 
-  if (error) {
-    console.error('Update job posting error:', error);
-    return res.status(500).json({ error: error.message || 'Failed to update job posting' });
+    const { rows } = await db.query(
+      `UPDATE job_postings SET ${setClauses.join(', ')} WHERE id = $${idIdx} AND user_id = $${userIdx} RETURNING *`,
+      params
+    );
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Job posting not found' });
+    }
+    return res.json({ data: rows[0] });
+  } catch (err) {
+    console.error('Update job posting error:', err.message);
+    return res.status(500).json({ error: 'Failed to update job posting' });
   }
-  if (!data) return res.status(404).json({ error: 'Job posting not found' });
-
-  return res.json({ data });
 });
 
+// ---------------------------------------------------------------------------
+// DELETE /job-postings/:id — delete own job posting
+// Authorization: Supabase RLS enforced auth.uid() = user_id for DELETE.
+//   Preserved: WHERE id = $id AND user_id = req.user.id
+// ---------------------------------------------------------------------------
 router.delete('/:id', async (req, res) => {
-  const { data, error } = await supabase
-    .from('job_postings')
-    .delete()
-    .eq('id', req.params.id)
-    .eq('user_id', req.user.id)
-    .select('id')
-    .maybeSingle();
-
-  if (error) {
-    console.error('Delete job posting error:', error);
-    return res.status(500).json({ error: error.message || 'Failed to delete job posting' });
+  try {
+    const { rows } = await db.query(
+      'DELETE FROM job_postings WHERE id = $1 AND user_id = $2 RETURNING id',
+      [req.params.id, req.user.id]
+    );
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Job posting not found' });
+    }
+    return res.json({ data: rows[0] });
+  } catch (err) {
+    console.error('Delete job posting error:', err.message);
+    return res.status(500).json({ error: 'Failed to delete job posting' });
   }
-  if (!data) return res.status(404).json({ error: 'Job posting not found' });
-
-  return res.json({ data });
 });
 
 module.exports = router;

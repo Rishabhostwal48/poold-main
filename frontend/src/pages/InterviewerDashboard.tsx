@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
+import { backendApi } from "@/lib/backendApi";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Briefcase, Eye, Calendar, User } from "lucide-react";
+import { Briefcase, Eye, Calendar } from "lucide-react";
 import { toast } from "sonner";
 import { UserMenu } from "@/components/UserMenu";
 
@@ -39,111 +39,11 @@ export default function InterviewerDashboard() {
 
   const fetchInterviewerData = async () => {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("Not authenticated");
+      const data = await backendApi.getInterviewerDashboard();
 
-      // Fetch interview sessions with candidate and job details
-      const { data: sessionsData, error: sessionsError } = await supabase
-        .from("interview_sessions")
-        .select(`
-          *,
-          interview_analysis(*),
-          job_postings(title)
-        `)
-        .eq("recruiter_id", user.id)
-        .order("created_at", { ascending: false });
-
-      if (sessionsError) throw sessionsError;
-
-      // Fetch candidate profiles for all sessions
-      const candidateIds = sessionsData?.map(s => s.candidate_id) || [];
-      const { data: profilesData } = await supabase
-        .from("profiles")
-        .select("user_id, name, email")
-        .in("user_id", candidateIds);
-
-      // Count responses per session
-      const sessionIds = sessionsData?.map(s => s.id) || [];
-      const { data: responseCounts } = await supabase
-        .from("interview_responses")
-        .select("interview_session_id")
-        .in("interview_session_id", sessionIds);
-
-      // Merge candidate info with sessions
-      const enrichedSessions = sessionsData?.map(session => {
-        const profile = profilesData?.find(p => p.user_id === session.candidate_id);
-        const responseCount = responseCounts?.filter(r => r.interview_session_id === session.id).length || 0;
-        return {
-          ...session,
-          candidate_name: profile?.name || "Unknown",
-          candidate_email: profile?.email || "",
-          job_title: session.job_postings?.title || "N/A",
-          response_count: responseCount
-        };
-      }) || [];
-
-      // Fetch gap analyses for candidates in interviewer's sessions or for recruiter's job postings
-      // First get all job posting IDs from the recruiter
-      const { data: recruiterJobs } = await supabase
-        .from("job_postings")
-        .select("id")
-        .eq("user_id", user.id);
-      
-      const jobPostingIds = recruiterJobs?.map(j => j.id) || [];
-      
-      // Build query conditions
-      const conditions = [];
-      if (candidateIds.length > 0) {
-        conditions.push(`user_id.in.(${candidateIds.join(',')})`);
-      }
-      if (jobPostingIds.length > 0) {
-        conditions.push(`job_posting_id.in.(${jobPostingIds.join(',')})`);
-      }
-      
-      let gapData = null;
-      let gapError = null;
-      
-      if (conditions.length > 0) {
-        const result = await supabase
-          .from("gap_analysis_results")
-          .select(`
-            *,
-            job_postings(title)
-          `)
-          .or(conditions.join(','))
-          .order("created_at", { ascending: false });
-        
-        gapData = result.data;
-        gapError = result.error;
-      }
-
-      if (gapError) console.error("Gap analysis error:", gapError);
-
-      // Enrich gap analyses with candidate info
-      const enrichedGaps = gapData?.map(gap => {
-        const profile = profilesData?.find(p => p.user_id === gap.user_id);
-        const session = enrichedSessions.find(s => s.candidate_id === gap.user_id);
-        return {
-          ...gap,
-          candidate_name: profile?.name || "Unknown",
-          candidate_email: profile?.email || "",
-          job_title_from_session: session?.job_title,
-          job_posting_title: gap.job_postings?.title
-        };
-      }) || [];
-
-      // Fetch interview responses with questions
-      const { data: responsesData, error: responsesError } = await supabase
-        .from("interview_responses")
-        .select("*, interview_questions(*)")
-        .in("interview_session_id", sessionIds)
-        .order("created_at", { ascending: false });
-
-      if (responsesError) throw responsesError;
-
-      setInterviews(enrichedSessions);
-      setGapAnalyses(enrichedGaps);
-      setResponses(responsesData || []);
+      setInterviews(data.sessions || []);
+      setGapAnalyses(data.gap_analyses || []);
+      setResponses(data.responses || []);
     } catch (error: any) {
       toast.error("Error loading dashboard data: " + error.message);
     } finally {
@@ -298,9 +198,6 @@ export default function InterviewerDashboard() {
                         <TableCell>
                           {(() => {
                             const items = gap.robust_gap_analysis?.items || [];
-                            const weakOrUncovered = items.filter((item: any) => 
-                              item.coverage === 'weak' || item.coverage === 'unknown'
-                            );
                             const matchScore = items.length > 0 
                               ? Math.round((items.filter((item: any) => item.coverage === 'covered').length / items.length) * 100)
                               : 0;
@@ -358,7 +255,7 @@ export default function InterviewerDashboard() {
                     <Card key={response.id} className="bg-accent/5">
                       <CardHeader>
                         <CardTitle className="text-lg">
-                          {response.interview_questions?.question_text}
+                          {response.question_text || response.interview_questions?.question_text}
                         </CardTitle>
                         <CardDescription className="flex items-center gap-4">
                           <span>

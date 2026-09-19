@@ -1,9 +1,20 @@
 const express = require('express');
 const router = express.Router();
 const dotenv = require('dotenv');
+const { createClient } = require('@supabase/supabase-js');
+const cognito = require('../auth/cognito');
+const db = require('../db');
+const { authenticate } = require('../middleware/authenticate');
+
 dotenv.config();
 
-const { createClient } = require('@supabase/supabase-js');
+const supabaseUrl = process.env.SUPABASE_URL || 'https://placeholder.supabase.co';
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || 'placeholder-key';
+
+const supabase = createClient(supabaseUrl, supabaseKey, {
+  auth: { persistSession: false, autoRefreshToken: false },
+});
+
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -15,42 +26,45 @@ router.options('/', (req, res) => {
   res.sendStatus(200);
 });
 
-router.post('/', async (req, res) => {
+router.post('/', authenticate, async (req, res) => {
   res.set(corsHeaders);
 
   try {
-    const SUPABASE_URL = process.env.SUPABASE_URL || '';
-    const SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+    const userId = req.user.id;
+    const userEmail = req.user.email;
 
-    const supabaseClient = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
+    // Lookup user in app_users database table to retrieve cognito_sub and email
+    const { rows } = await db.query(
+      'SELECT id, cognito_sub, email FROM app_users WHERE id = $1',
+      [userId]
+    );
 
-    const authHeader = req.get('Authorization') || req.get('authorization');
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'Unauthorized' });
+    const appUser = rows.length > 0 ? rows[0] : null;
+    const emailToDelete = appUser ? appUser.email : userEmail;
+
+    // 1. Delete from Cognito (if configured / present)
+    if (emailToDelete) {
+      try {
+        await cognito.deleteUser(emailToDelete);
+      } catch (cognitoErr) {
+        console.warn('Warning: Delete Cognito user error:', cognitoErr.message);
+      }
     }
 
-    const token = authHeader.replace(/^Bearer\s+/i, '');
-
-    const { data: userData, error: userError } = await supabaseClient.auth.getUser(token);
-    const user = userData?.user;
-
-    if (userError || !user) {
-      return res.status(401).json({ error: 'Unauthorized' });
+    // 2. Delete from Supabase Auth (transitional)
+    try {
+      await supabase.auth.admin.deleteUser(userId);
+    } catch (sbErr) {
+      console.warn('Warning: Delete Supabase user error:', sbErr.message);
     }
 
-    // Delete the user account (admin)
-    const { error: deleteError } = await supabaseClient.auth.admin.deleteUser(user.id);
-
-    if (deleteError) {
-      console.error('Delete user error:', deleteError);
-      return res.status(500).json({ error: deleteError.message || 'Failed to delete user' });
-    }
+    // 3. Delete from PostgreSQL database (Cascades to profiles, user_roles, etc.)
+    await db.query('DELETE FROM app_users WHERE id = $1', [userId]);
 
     return res.status(200).json({ success: true, message: 'Account deleted successfully' });
   } catch (error) {
-    console.error('Delete-user-account error:', error);
-    const message = error instanceof Error ? error.message : 'An unknown error occurred';
-    return res.status(400).json({ error: message });
+    console.error('Delete-user-account error:', error.message);
+    return res.status(500).json({ error: error.message || 'Failed to delete user' });
   }
 });
 

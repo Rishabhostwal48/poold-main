@@ -1,9 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const dotenv = require('dotenv');
-const { createClient } = require('@supabase/supabase-js');
-
-dotenv.config();
+const db = require('../db');
 
 router.use(express.json({ limit: '1mb' }));
 
@@ -17,22 +14,13 @@ router.options('/', (req, res) => {
   res.sendStatus(200);
 });
 
+// DEFERRED SECURITY REVIEW: This endpoint saves Maya interview data without
+// user authentication. This matches the existing Supabase behavior.
+// Evaluate whether authentication should be required in a future loop.
 router.post('/', async (req, res) => {
   res.set(corsHeaders);
 
   try {
-    const SUPABASE_URL = process.env.SUPABASE_URL;
-    const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-    if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
-      return res.status(500).json({
-        error: 'Supabase configuration missing (SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY required)',
-      });
-    }
-
-    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-
-  ;
     const {
       session_id,
       candidate_name,
@@ -51,31 +39,40 @@ router.post('/', async (req, res) => {
       candidate_phone,
     });
 
-    const { data, error } = await supabase.from('maya_interviews').insert({
-      session_id,
-      candidate_name: candidate_name || null,
-      candidate_phone: candidate_phone || null,
-      started_at,
-      ended_at,
-      duration_seconds,
-      questions: questions || [],
-      responses: responses || [],
-      transcript: transcript || [],
-    });
+    const { rows } = await db.query(
+      `INSERT INTO maya_interviews
+         (session_id, candidate_name, candidate_phone,
+          started_at, ended_at, duration_seconds,
+          questions, responses, transcript)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       RETURNING *`,
+      [
+        session_id,
+        candidate_name || null,
+        candidate_phone || null,
+        started_at,
+        ended_at,
+        duration_seconds,
+        JSON.stringify(questions || []),
+        JSON.stringify(responses || []),
+        JSON.stringify(transcript || []),
+      ]
+    );
 
-    if (error) {
-      console.error('Error saving interview:', error);
-      return res.status(500).json({
-        error: error.message,
+    console.log('✅ Interview saved successfully');
+    return res.json({ success: true, data: rows[0] || null });
+
+  } catch (error) {
+    console.error('Save interview error:', error);
+
+    // Handle unique constraint violation on session_id
+    if (error.code === '23505') {
+      return res.status(409).json({
+        error: 'Interview with this session_id already exists',
         code: error.code,
       });
     }
 
-    console.log('✅ Interview saved successfully');
-    return res.json({ success: true, data });
-
-  } catch (error) {
-    console.error('Save interview error:', error);
     const message = error instanceof Error ? error.message : 'Unknown error';
     return res.status(500).json({
       error: message,

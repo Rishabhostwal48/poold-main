@@ -22,8 +22,8 @@ import { ingestCV, ingestJD } from '@/lib/api';
 import { generateInterviewQuestions } from '@/services/aiServices';
 import { computeGapAnalysis } from '@/lib/gap';
 import { saveCVAnalysis, saveGapAnalysis } from '@/lib/analysisStorage';
-import { supabase } from '@/integrations/supabase/client';
 import { getJobPosting } from '@/lib/jobPostingsApi';
+import { backendApi } from '@/lib/backendApi';
 import type { CandidateProfile, JobProfile } from '@/types';
 
 export default function Setup() {
@@ -580,31 +580,13 @@ export default function Setup() {
                       }
 
                       if (applyingJobId) {
-                        const { data: { user } } = await supabase.auth.getUser();
-                        if (!user) throw new Error('Not authenticated');
+                        // Create interview session via backend API
+                        const sessionRes = await backendApi.createInterviewSession({
+                          job_posting_id: applyingJobId,
+                          status: 'scheduled',
+                        });
 
-                        // Get job posting to get recruiter_id
-                        const { data: jobPosting, error: jobError } = await supabase
-                          .from('job_postings')
-                          .select('user_id')
-                          .eq('id', applyingJobId)
-                          .single();
-
-                        if (jobError) throw jobError;
-
-                        // Create interview session
-                        const { data: session, error: sessionError } = await supabase
-                          .from('interview_sessions')
-                          .insert({
-                            job_posting_id: applyingJobId,
-                            candidate_id: user.id,
-                            recruiter_id: jobPosting.user_id,
-                            status: 'scheduled',
-                          })
-                          .select()
-                          .single();
-
-                        if (sessionError) throw sessionError;
+                        const session = sessionRes.data;
 
                         sessionStorage.removeItem('applying_job_id');
                         toast({

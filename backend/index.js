@@ -24,7 +24,7 @@ app.use(cors({
     'apikey',
     'x-supabase-api-version'
   ],
-  credentials: false
+  credentials: true
 }));
 
 // Middleware to parse JSON bodies (increased limit for large payloads)
@@ -44,6 +44,7 @@ app.get('/', (req, res) => {
   res.send('Hello World!');
 });
 app.use('/auth', require('./service/auth'));
+app.use('/api', require('./service/api'));
 app.use('/job-postings', require('./service/job-postings'));
 app.use('/parse-cv', require('./service/parse-cv'));   //
 app.use('/upload-cv', require('./service/upload-cv'));//
@@ -77,7 +78,7 @@ if (interviewModule && typeof interviewModule.setupWebSocketHandlers === 'functi
   const server = http.createServer(app);
   const io = socketIo(server, {
     cors: {
-      origin: '*',
+      origin: Array.from(allowedOrigins),
       methods: ['GET', 'POST'],
       allowedHeaders: ['Content-Type', 'Authorization']
     }

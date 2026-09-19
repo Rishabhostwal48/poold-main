@@ -1,11 +1,19 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-import { BackendSession, BackendUser } from '@/lib/backendAuth';
-import { supabase } from '@/integrations/supabase/client';
+import {
+  BackendSession,
+  BackendUser,
+  refreshSession,
+  logout,
+  setAccessToken,
+  getAccessToken,
+} from '@/lib/backendAuth';
+import { backendApi } from '@/lib/backendApi';
 
 interface AuthContextType {
   user: BackendUser | null;
   session: BackendSession | null;
   loading: boolean;
+  setAuthSession: (user: BackendUser, session: BackendSession) => void;
   signOut: () => Promise<void>;
 }
 
@@ -20,60 +28,71 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let mounted = true;
 
     const restoreSession = async () => {
-      let { data: { session: authSession } } = await supabase.auth.getSession();
+      try {
+        const refreshRes = await refreshSession();
+        if (refreshRes.access_token) {
+          setAccessToken(refreshRes.access_token);
+          const newSession: BackendSession = {
+            access_token: refreshRes.access_token,
+            expires_in: refreshRes.expires_in,
+            token_type: refreshRes.token_type,
+          };
 
-      // Migrate sessions created by the old custom storage path once.
-      if (!authSession) {
-        const storedSession = localStorage.getItem('backend_session');
-        if (storedSession) {
+          // Fetch roles for authenticated user
+          let roles: string[] = [];
           try {
-            const parsedSession = JSON.parse(storedSession) as BackendSession;
-            if (parsedSession.access_token && parsedSession.refresh_token) {
-              const result = await supabase.auth.setSession({
-                access_token: parsedSession.access_token,
-                refresh_token: parsedSession.refresh_token,
-              });
-              authSession = result.data.session;
-            }
+            const roleRes = await backendApi.getUserRoles();
+            roles = roleRes.roles || [];
           } catch {
-            await supabase.auth.signOut();
-          } finally {
-            localStorage.removeItem('backend_session');
+            // ignore role fetch error
+          }
+
+          if (mounted) {
+            setSession(newSession);
+            setUser({
+              id: 'restored-session', // User ID resolved on backend via req.user.id
+              roles,
+              user_metadata: { roles },
+            });
           }
         }
-      }
-
-      if (mounted) {
-        setSession(authSession as BackendSession | null);
-        setUser(authSession?.user as BackendUser | null);
-        setLoading(false);
+      } catch {
+        if (mounted) {
+          setSession(null);
+          setUser(null);
+          setAccessToken(null);
+        }
+      } finally {
+        if (mounted) {
+          setLoading(false);
+        }
       }
     };
 
     void restoreSession();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, nextSession) => {
-      if (!mounted) return;
-      setSession(nextSession as BackendSession | null);
-      setUser(nextSession?.user as BackendUser | null);
-      setLoading(false);
-    });
-
     return () => {
       mounted = false;
-      subscription.unsubscribe();
     };
   }, []);
 
+  const setAuthSession = (newUser: BackendUser, newSession: BackendSession) => {
+    setUser(newUser);
+    setSession(newSession);
+    if (newSession.access_token) {
+      setAccessToken(newSession.access_token);
+    }
+  };
+
   const signOut = async () => {
-    await supabase.auth.signOut();
-    localStorage.removeItem('backend_session');
+    await logout();
     setSession(null);
     setUser(null);
+    setAccessToken(null);
   };
 
   return (
-    <AuthContext.Provider value={{ user, session, loading, signOut }}>
+    <AuthContext.Provider value={{ user, session, loading, setAuthSession, signOut }}>
       {children}
     </AuthContext.Provider>
   );

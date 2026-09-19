@@ -1,18 +1,17 @@
-import { supabase } from '@/integrations/supabase/client';
+import { getAccessToken } from './backendAuth';
 
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL;
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000';
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-  if (!BACKEND_URL) throw new Error('Backend URL is not configured');
-
-  const { data: { session } } = await supabase.auth.getSession();
-  if (!session?.access_token) throw new Error('Not authenticated');
+  const token = getAccessToken();
+  if (!token) throw new Error('Not authenticated');
 
   const response = await fetch(`${BACKEND_URL}/job-postings${path}`, {
     ...options,
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${session.access_token}`,
+      Authorization: `Bearer ${token}`,
       ...options.headers,
     },
   });

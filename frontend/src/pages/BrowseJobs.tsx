@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { supabase } from '@/integrations/supabase/client';
+import { backendApi } from '@/lib/backendApi';
 import { listActiveJobPostings } from '@/lib/jobPostingsApi';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -64,35 +64,20 @@ export default function BrowseJobs() {
     if (!selectedJob) return;
 
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('Not authenticated');
+      // Create application via backend API
+      await backendApi.createApplication({
+        opportunity_id: selectedJob.id,
+        status: 'pending',
+      });
 
-      // Create application
-      const { data: application, error: appError } = await supabase
-        .from('applications')
-        .insert({
-          opportunity_id: selectedJob.id,
-          applicant_id: user.id,
-          status: 'pending',
-        })
-        .select()
-        .single();
+      // Create interview session via backend API
+      const sessionRes = await backendApi.createInterviewSession({
+        job_posting_id: selectedJob.id,
+        recruiter_id: selectedJob.user_id,
+        status: 'scheduled',
+      });
 
-      if (appError) throw appError;
-
-      // Create interview session
-      const { data: session, error: sessionError } = await supabase
-        .from('interview_sessions')
-        .insert({
-          job_posting_id: selectedJob.id,
-          candidate_id: user.id,
-          recruiter_id: selectedJob.user_id,
-          status: 'scheduled',
-        })
-        .select()
-        .single();
-
-      if (sessionError) throw sessionError;
+      const session = sessionRes.data;
 
       toast.success('Interview session created!');
       navigate(`/interview?session=${session.id}`);

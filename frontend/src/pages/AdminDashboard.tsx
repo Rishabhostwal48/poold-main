@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { backendApi } from "@/lib/backendApi";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "sonner";
@@ -22,32 +22,26 @@ export default function AdminDashboard() {
 
   const fetchAdminData = async () => {
     try {
-      // Fetch statistics
-      const { data: statsData, error: statsError } = await supabase
-        .from("admin_statistics")
-        .select("*")
-        .order("date", { ascending: false })
-        .limit(30);
+      const [statsRes, userCountRes] = await Promise.all([
+        backendApi.getAdminStatistics(),
+        backendApi.getAdminUserCount(),
+      ]);
 
-      if (statsError) throw statsError;
+      const statsData = statsRes.data || [];
+      const usersCount = userCountRes.count || 0;
 
       // Calculate totals
-      const totalCost = statsData?.reduce((sum, stat) => sum + Number(stat.estimated_cost_usd), 0) || 0;
-      const totalApiCalls = statsData?.reduce((sum, stat) => sum + stat.ai_api_calls, 0) || 0;
-      const avgProcessingTime = statsData?.length 
-        ? statsData.reduce((sum, stat) => sum + stat.processing_time_seconds, 0) / statsData.length 
+      const totalCost = statsData.reduce((sum, stat) => sum + Number(stat.estimated_cost_usd || 0), 0);
+      const totalApiCalls = statsData.reduce((sum, stat) => sum + (stat.ai_api_calls || 0), 0);
+      const avgProcessingTime = statsData.length 
+        ? statsData.reduce((sum, stat) => sum + (stat.processing_time_seconds || 0), 0) / statsData.length 
         : 0;
 
-      // Get total users count
-      const { count: usersCount } = await supabase
-        .from("profiles")
-        .select("*", { count: "exact", head: true });
-
-      setStatistics(statsData || []);
+      setStatistics(statsData);
       setTotalStats({
         totalCost,
         totalApiCalls,
-        totalUsers: usersCount || 0,
+        totalUsers: usersCount,
         avgProcessingTime,
       });
     } catch (error: any) {

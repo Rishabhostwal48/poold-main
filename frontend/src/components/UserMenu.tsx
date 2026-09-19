@@ -3,7 +3,7 @@ import { User } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/integrations/supabase/client';
+import { getAccessToken } from '@/lib/backendAuth';
 import { toast } from 'sonner';
 import {
   AlertDialog,
@@ -23,7 +23,7 @@ interface UserMenuProps {
 
 export function UserMenu({ showBackButton = true }: UserMenuProps) {
   const navigate = useNavigate();
-  const { signOut } = useAuth();
+  const { user, signOut } = useAuth();
 
   const handleLogout = async () => {
     try {
@@ -37,36 +37,25 @@ export function UserMenu({ showBackButton = true }: UserMenuProps) {
 
   const handleDeleteAccount = async () => {
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const user = session?.user;
-      
-      if (!user) {
-        toast.error('No user found');
+      const token = getAccessToken();
+      if (!user || !token) {
+        toast.error('No authenticated user found');
         return;
       }
 
-      // Call edge function to delete user account
-      // const { data, error } = await supabase.functions.invoke('delete-user-account', {
-      //   body: { userId: user.id }
-      // });
-      let data,error;
-      await fetch(`${import.meta.env.VITE_BACKEND_URL}/delete-user-account`, {
+      const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000';
+      const response = await fetch(`${BACKEND_URL}/delete-user-account`, {
         method: 'POST',
+        credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${session.access_token}`,
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({ userId: user.id })
-      }).then(async (res)=> {
-        const resData = await res.json();
-        if (!res.ok) throw new Error(resData.error || 'Failed to delete account');
-        return resData;
-      }).then((resData)=>{
-        data=resData;
-      }).catch((err)=>{
-        error=err;
-      })
-      if (error) throw error;
+      });
+
+      const resData = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(resData.error || 'Failed to delete account');
 
       // Sign out after successful deletion
       await signOut();

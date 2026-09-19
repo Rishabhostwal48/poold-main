@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/integrations/supabase/client';
+import { changePassword } from '@/lib/backendAuth';
 import { useToast } from '@/hooks/use-toast';
 
 export default function Profile() {
@@ -16,7 +16,7 @@ export default function Profile() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const displayName = (user?.user_metadata as any)?.full_name || (user?.user_metadata as any)?.name || '';
+  const displayName = (user?.user_metadata as any)?.full_name || (user?.user_metadata as any)?.name || user?.name || '';
   const email = user?.email || '';
 
   const handleChangePassword = async (e: React.FormEvent) => {
@@ -32,8 +32,7 @@ export default function Profile() {
 
     setLoading(true);
     try {
-      const { data, error } = await supabase.auth.updateUser({ password: newPassword });
-      if (error) throw error;
+      await changePassword(newPassword);
       toast({ title: 'Password updated', description: 'Your password was changed successfully' });
       setNewPassword('');
       setConfirmPassword('');
