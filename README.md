@@ -1,688 +1,442 @@
-# Sonic Recruiter Pro
+# Poold: AI-Powered Skills Interview Platform
 
-Concise, top-level readme for the Sonic Recruiter Pro repository. This repository contains two primary projects:
+Poold is a web application that helps companies interview candidates using skills-based questions instead of relying only on resumes.
 
-- `frontend/` — the React + Vite frontend that implements the interview UI, audio capture, and client-side logic.
-- `backend/` — the Express.js backend that exposes HTTP routes and the optional realtime interviewer (Socket.IO). The backend handles secure server-side operations (OpenAI, ElevenLabs, Supabase interactions, and migrations).
+A candidate can:
 
-Live demo: https://app.poold.co
+- Create an account and sign in.
+- Upload a CV or resume.
+- Analyze a CV with AI.
+- Review job descriptions and skill requirements.
+- Complete a live interview with Maya, the AI interviewer.
+- Answer by speaking or typing.
+- Receive transcripts, analysis, skill-gap information, and an interview summary.
 
----
+A recruiter or interviewer can:
 
-## Quick Overview
+- Create and manage job postings.
+- Review candidates and interviews.
+- Compare skills and interview results.
+- View analysis and recommendations.
 
-This monorepo separates concerns between frontend and backend. Each part has its own README with full details and environment instructions:
+This repository contains both the website and the server that powers it.
 
-- Frontend documentation: `frontend/README.md`
-- Backend documentation: `backend/README.md`
+## How The Project Works
 
-Use the instructions below for a fast local dev setup (minimal commands). For full configuration and advanced options, read the per-project README files.
+The project has three important parts:
 
----
-
-## Quick Start (Local Development)
-
-npx nodemon index.js    # or `PORT=3001 node index.js` to run on custom port
-
-### Option 1: Run locally with npm/bun
-
-1. Clone the repository
-  ```bash
-  git clone <your-repo-url>
-  cd sonic-recruiter-pro
-  ```
-
-2. Frontend: run the UI locally
-  ```bash
-  cd frontend
-  npm install      # or `bun install`
-  # create frontend/.env with the variable NAMES listed below (do NOT commit secrets)
-  npm run dev      # or `bun dev` (http://localhost:5173 or configured port)
-  ```
-
-3. Backend: run the server (in another terminal)
-  ```bash
-  cd backend
-  npm install
-  # create backend/.env with the variable NAMES listed below (do NOT commit secrets)
-  npx nodemon index.js    # or `PORT=3001 node index.js` to run on custom port
-  ```
-
-### Option 2: Run locally with Docker Compose
-
-1. Build and start both frontend and backend containers:
-  ```bash
-  docker-compose up --build --force-recreate
-  ```
-
-2. Access the frontend at:
-  ```
-  http://localhost:8080
-  ```
-
-3. Stop all containers:
-  ```bash
-  docker-compose down
-  ```
-
-**Notes:**
-- Ensure `.env` files exist in both `frontend/` and `backend/` before starting containers.
-- The Docker setup uses named volumes for `node_modules` to avoid host/container conflicts.
-- For advanced Docker usage, see comments in `docker-compose.yml` and each subproject's README.
-
----
-
-## Architecture & Environment Variables
-
-Current Production Architecture:
-- **Amazon Cognito**: User authentication (access token in memory, refresh token in HttpOnly cookie)
-- **PostgreSQL**: Centralized application database
-- **Amazon S3**: File storage (presigned URLs and bucket storage)
-- **Express Backend**: API, WebSocket namespace `/interview`, and role authorization
-- *(Transitional)*: Backend Supabase Auth fallback retained temporarily for legacy-user password migration.
-
-Frontend (.env) — place in `frontend/.env`:
-
-```
-VITE_BACKEND_URL         # Express API server URL (e.g. http://localhost:3000)
-VITE_API_BASE_URL        # API base path (e.g. http://localhost:3000/api)
-VITE_WEBSOCKET_URL       # WebSocket URL (e.g. ws://localhost:3000/interview)
-ELEVENLABS_API_KEY       # ElevenLabs API key
+```text
+Your browser
+    |
+    | React website
+    v
+Frontend (Vite, port 8080)
+    |
+    | HTTP API and Socket.IO interview connection
+    v
+Backend (Express, port 3000)
+    |
+    +--> PostgreSQL database
+    +--> Amazon Cognito authentication
+    +--> Amazon S3 file storage
+    +--> Groq/OpenAI AI services
+    +--> ElevenLabs text-to-speech (optional)
 ```
 
-Backend (.env) — place in `backend/.env`:
+The frontend displays the application. The backend handles authentication, permissions, AI requests, file uploads, interview audio, and database operations.
 
-```
-OPENAI_API_KEY
-ELEVENLABS_API_KEY
-DB_HOST
-DB_PORT
-DB_NAME
-DB_USER
-DB_PASSWORD
-COGNITO_USER_POOL_ID
-COGNITO_CLIENT_ID
-COGNITO_REGION
-S3_BUCKET_NAME
-AWS_REGION
-SUPABASE_URL             # Transitional legacy auth fallback
-SUPABASE_SERVICE_ROLE_KEY # Transitional legacy auth fallback
-PORT
-```
+## Main Features
 
----
+### Authentication
 
-## Useful Commands
+The backend uses Amazon Cognito for user registration and login. The application stores the current access token in the browser and sends it to protected backend routes.
 
-From repo root:
+### CV Upload And Analysis
 
-```bash
-# Start frontend (in one terminal)
-cd frontend && bun dev
+Users can upload a PDF resume. The backend stores the file in Amazon S3, extracts text, and sends the text to an AI parser. The result is converted into a candidate profile containing experience, skills, education, and certifications.
 
-# Start backend (in another terminal)
-cd backend && node index.js
+### Job Postings
 
-# Run both with two terminals or use your preferred process manager
-```
+Interviewers can create, edit, list, and delete job postings. Candidates can browse active postings. Job-posting requests go through the local Express backend at `/job-postings`.
 
----
+### Live Interviews
 
-## Where to look next
+Maya can conduct interviews using two transport options:
 
-- Frontend developer docs & details: `frontend/README.md` (WebRTC, MayaInterview, realtimeClient, tts, env examples)
-- Backend API, WebSocket interview, and deployment instructions: `backend/README.md`
-- CI, tests, and infra: see each project's README for recommendations
+- WebRTC with the OpenAI Realtime API.
+- Socket.IO/WebSocket fallback using recorded audio, transcription, and AI-generated questions.
 
----
+The fallback transport sends candidate audio to the backend in small chunks. The backend sends audio to a speech-to-text provider, generates the next question, and sends it back to the browser.
 
-## Contributing
+### Text-To-Speech
 
-1. Create a branch: `git checkout -b feat/your-change`
-2. Make focused changes and tests (if applicable)
-3. Open a PR against `sn_dev` (or your team's target branch)
+Browser speech is the default voice option because ElevenLabs library voices require a paid plan. ElevenLabs can be enabled explicitly if the account and selected voice support API usage.
 
----
+## Requirements
 
-If you'd like, I can also:
+Install these tools before starting:
 
-- Create a small root-level `dev` script that starts frontend and backend concurrently.
-- Add a minimal `docker-compose` that spins up frontend, backend and a local mock Supabase for smoke tests.
+- Node.js 18 or newer
+- npm
+- A PostgreSQL database, either local or hosted
+- An Amazon Cognito user pool
+- An Amazon S3 bucket for CV files
+- A Groq API key for CV parsing, question generation, and transcription
+- Optional OpenAI API key for OpenAI-powered features
+- Optional ElevenLabs API key for paid text-to-speech
 
----
+You do not need SQL software installed just to use a hosted PostgreSQL database. SQL migrations are run against the configured database by the migration tool or database dashboard.
 
-Last updated: 2025-11-16
-# Sonic Recruiter Pro - AI-Powered Interview Platform - Frontend 
+## Project Structure
 
-Production-ready frontend for conducting real-time voice interviews using OpenAI's Realtime API with comprehensive interview analysis and scoring capabilities.
-
-## Project Brief
-
-Sonic Recruiter Pro is a two-part system: a frontend (this repository) that runs the interview UI, audio capture, and client-side logic, and a backend (a separate repository) that hosts secure server-side functions, database migrations, and API endpoints. The frontend README focuses on local development and UI integration; backend operational details (secrets, migrations, server deployment) live in the backend repository's README.
-
-Live demo: https://app.poold.co
-
-### Live App & Setup (short)
-- Visit the live application at: https://app.poold.co
-- For local frontend development: follow the `Quick Start` section in this README (clone, install, create `.env`, run `bun dev`).
-- For backend setup (Supabase, Edge Functions, secrets, migrations) see the backend repository README — that repo contains all server-side setup and deployment steps.
-
-
-## 🎯 Overview
-
-Sonic Recruiter Pro is an end-to-end interview automation solution featuring:
-- **Real-time voice interviews** with AI interviewer (Maya) powered by GPT-4 Realtime
-- **CV parsing and analysis** with structured data extraction
-- **Job description analysis** with requirement matching
-- **Dual-transport architecture** (WebRTC + WebSocket) for 99.9% uptime
-- **Comprehensive analytics** with response evaluation and scoring
-
----
-
-## 🌟 Core Features
-
-### 1. Interview Management
-- **Live Audio Interviews**: WebRTC + OpenAI Realtime API for low-latency voice
-- **Fallback Transport**: WebSocket + Whisper + ElevenLabs TTS for resilience
-- **Barge-in Support**: Candidate can interrupt Maya mid-response
-- **Real-time Transcription**: Server-side Whisper with client-side VAD
-- **Duration Gating**: Enforces minimum 5-second answer duration before processing
-- **Question Tracking**: 8 main questions + 2 follow-ups per question
-- **Interview Duration**: 20-minute sessions with automatic termination
-
-### 2. CV & Resume Processing
-- **PDF/DOCX Upload**: Direct file upload to Supabase Storage
-- **AI Parsing**: GPT-4o-mini extracts structured data
-- **Profile Generation**: Candidate basics, experience, education, skills
-- **Experience Calculation**: Automatic years-of-experience detection
-
-### 3. Job Description Analysis
-- **Text/PDF Input**: Support for both raw text and file uploads
-- **Requirement Extraction**: Must-haves, nice-to-haves, technologies
-- **Competency Mapping**: Technical, soft skills, and behavioral signals
-- **Gap Analysis**: Real-time comparison with candidate profile
-
-### 4. Response Analysis & Scoring
-- **10-Dimension Evaluation**:
-  - Technical correctness & depth
-  - Communication clarity
-  - Problem-solving approach
-  - Job relevance
-  - Experience evidence
-  - Soft skills observed
-  - Critical thinking
-  - Red flags detection
-  - Follow-up opportunities
-  - Overall hiring recommendation
-
-### 5. Interview Summary & Reports
-- **Automated Reports**: Post-interview analysis and scoring
-- **Recommendation Engine**: Hire/No-Hire with reasoning
-- **Transcript Export**: Full audio transcripts with timestamps
-- **Comparative Analytics**: Multiple candidate comparison
-
-## 🏗️ Technology Stack
-
-### Frontend
-| Component | Technology | Version |
-|-----------|-----------|---------|
-| Framework | React | 18.3+ |
-| Language | TypeScript | 5.6+ |
-| Build Tool | Vite | 5.0+ |
-| Styling | Tailwind CSS | 3.4+ |
-| UI Components | Shadcn/ui | Latest |
-| Package Manager | Bun | 1.x |
-| WebRTC | OpenAI Realtime API | preview-20241024 |
-| Audio Codec | Opus (webm) | 128kbps |
-
-
-
-## 📋 Project Structure
-
-```
-sonic-recruiter-pro/
-├── src/
-│   ├── pages/              # Route pages
-│   │   ├── Landing.tsx     # Landing/home
-│   │   ├── Auth.tsx        # Authentication
-│   │   ├── Setup.tsx       # CV upload + job description
-│   │   ├── Interview.tsx   # Live interview (WebSocket fallback)
-│   │   ├── MayaInterview.tsx # Live interview (WebRTC primary)
-│   │   ├── Summary.tsx     # Interview summary & analysis
-│   │   ├── AdminDashboard.tsx
-│   │   └── ...
-│   ├── components/         # Reusable React components
-│   │   ├── ui/            # Shadcn/ui components
-│   │   ├── LiveInterview.tsx
-│   │   ├── QuestionCard.tsx
-│   │   ├── ResponseAnalysis.tsx
-│   │   ├── VUMeter.tsx    # Audio levels visualization
-│   │   └── ...
-│   ├── lib/               # Core utilities
-│   │   ├── api.ts         # Supabase API calls
-│   │   ├── edge.ts        # Edge function caller
-│   │   ├── gap.ts         # Gap analysis logic
-│   │   ├── pdfClient.ts   # PDF handling
-│   │   └── utils.ts       # General utilities
-│   ├── utils/             # Audio & WebRTC utilities
-│   │   ├── realtimeClient.ts     # OpenAI Realtime WebRTC
-│   │   ├── RealtimeAudio.ts      # WebSocket audio handling
-│   │   ├── audioQueue.ts         # TTS audio playback
-│   │   ├── tts.ts               # ElevenLabs integration
-│   │   └── micGate.ts           # Voice activity detection
-│   ├── hooks/             # Custom React hooks
-│   │   ├── useAudioRecorder.ts
-│   │   ├── useUserRole.ts
-│   │   └── use-toast.ts
-│   ├── contexts/          # React contexts
-│   │   └── AuthContext.tsx
-│   ├── services/          # External service integrations
-│   │   └── aiServices.ts
-│   ├── store/             # State management (Zustand)
-│   │   └── interview.ts
-├── public/
-├── vite.config.ts         # Vite configuration
-├── tailwind.config.ts     # Tailwind configuration
-├── tsconfig.json          # TypeScript configuration
-├── package.json
-├── .env                   # Environment variables (local)
+```text
+poold-main/
+├── backend/
+│   ├── index.js                 Express and Socket.IO server
+│   ├── service/                 API route handlers
+│   ├── middleware/              Authentication and request middleware
+│   ├── auth/                    Amazon Cognito integration
+│   ├── db/                      PostgreSQL connection and queries
+│   ├── storage/                 Amazon S3 integration
+│   ├── .env.example             Backend configuration template
+│   └── package.json
+├── frontend/
+│   ├── src/
+│   │   ├── pages/               Main application screens
+│   │   ├── components/          Reusable interface components
+│   │   ├── contexts/             Authentication state
+│   │   ├── hooks/               Reusable React hooks
+│   │   ├── lib/                 API clients and helpers
+│   │   └── utils/               Audio, WebSocket, and TTS utilities
+│   ├── supabase/migrations/     Database migration files
+│   ├── .env.example             Frontend configuration template
+│   └── package.json
+├── docker-compose.yml            Optional Docker setup
 └── README.md
 ```
 
-## 🚀 Quick Start
+## Install Dependencies
 
-### Prerequisites
-- **Node.js** 18+ or **Bun** (recommended)
-- **Supabase** account (free tier acceptable for development)
-- **OpenAI** API key with Realtime API access
-- **ElevenLabs** API key for neural TTS
+Open a terminal in the project folder.
 
-### Installation
+### PowerShell
 
-1. **Clone repository and install dependencies**
-```bash
-git clone <your-repo-url>
-cd sonic-recruiter-pro
-bun install  # or npm install
+```powershell
+cd "D:\E\amazon hack\poold-main\backend"
+npm install
+
+cd "D:\E\amazon hack\poold-main\frontend"
+npm install
 ```
 
-2. **Set up environment variables**
+### Command Prompt
 
-Create `.env` in project root:
+```bat
+cd /d "D:\E\amazon hack\poold-main\backend"
+npm install
+
+cd /d "D:\E\amazon hack\poold-main\frontend"
+npm install
+```
+
+Important: `Push-Location` and `Pop-Location` are PowerShell commands. They do not work in Command Prompt. In Command Prompt, use `cd` instead.
+
+## Configure The Backend
+
+Create a file named `backend/.env` by copying `backend/.env.example`.
+
+At minimum, configure:
+
 ```env
-# Supabase
-VITE_SUPABASE_URL=https://your-project.supabase.co
-VITE_SUPABASE_ANON_KEY=your-anon-key
-VITE_SUPABASE_EDGE_URL=https://your-project.supabase.co/functions/v1
+PORT=3000
+FRONTEND_ORIGIN=http://localhost:8080
 
-# ElevenLabs (fallback TTS)
-ELEVENLABS_API_KEY=sk_...
+# PostgreSQL
+DB_HOST=localhost
+DB_PORT=5432
+DB_NAME=your_database_name
+DB_USER=your_database_user
+DB_PASSWORD=your_database_password
+DB_SSL=false
+
+# Amazon Cognito
+COGNITO_USER_POOL_ID=your_user_pool_id
+COGNITO_CLIENT_ID=your_cognito_client_id
+COGNITO_REGION=us-east-1
+
+# Amazon S3
+S3_BUCKET_NAME=your_bucket_name
+AWS_REGION=us-east-1
+AWS_ACCESS_KEY_ID=your_access_key
+AWS_SECRET_ACCESS_KEY=your_secret_key
+
+# AI services
+GROQ_API_KEY=your_groq_key
+GROQ_MODEL_TEXT=openai/gpt-oss-120b
+GROQ_MODEL_FAST=openai/gpt-oss-20b
+GROQ_MODEL_STT=whisper-large-v3-turbo
+
+# Optional
+OPENAI_API_KEY=your_openai_key
+ELEVENLABS_API_KEY=your_elevenlabs_key
 ```
 
-3. **Start development server**
-```bash
-bun dev  # http://localhost:5173
+Never commit a real `.env` file or secret keys to Git.
+
+## Configure The Frontend
+
+Create `frontend/.env` from `frontend/.env.example`.
+
+```env
+VITE_BACKEND_URL=http://localhost:3000
+VITE_API_BASE_URL=http://localhost:3000/api
+VITE_USE_ELEVENLABS_TTS=false
 ```
 
+`VITE_USE_ELEVENLABS_TTS=false` uses the browser's built-in speech. Set it to `true` only when the ElevenLabs account, API key, model, and voice are configured for API use.
 
-## 🔧 Core Components
+Vite reads frontend environment variables when the frontend starts or builds. Restart the frontend after changing `.env`.
 
-### MayaInterview.tsx (Live Interview - WebRTC Primary)
-Main component managing the AI interview experience with 5-second answer gating.
+## Database Setup
 
-**Key Features:**
-- WebRTC peer connection to OpenAI Realtime API
-- Minimum 5-second answer duration enforcement
-- Silence detection (2-second threshold)
-- Barge-in support (interrupt Maya mid-response)
-- Fallback to WebSocket/Whisper if WebRTC fails
-- Real-time audio level visualization
+The database migration files are in:
 
-**Key Constants:**
-```typescript
-const MIN_ANSWER_DURATION_MS = 5000;  // Minimum 5 seconds before processing
-const SILENCE_THRESHOLD_MS = 2000;    // Silence timeout
-const TIMER_LIMIT_SEC = 1200;         // 20-minute interview limit
+```text
+frontend/supabase/migrations/
 ```
 
-**Critical Refs:**
-- `answerStartTimeRef`: Timestamp when candidate started speaking
-- `allowResponseRef`: Boolean gate for Maya response permission
-- `isAudioMutedRef`: Tracks local audio mute state
+They create the tables and policies needed by the application, including job postings, interview sessions, CV analysis, and user-related data.
 
-**Flow Example:**
-```typescript
-// 1. On transcript: Check if 5+ seconds elapsed
-onWSTranscript(text, speaker) {
-  if (speaker === 'user') {
-    if (!answerStartTimeRef.current) {
-      answerStartTimeRef.current = Date.now();
-    }
-    // After 5s, set allowResponseRef.current = true
-  }
-}
+The project uses the Supabase CLI to apply these migrations to a hosted database. Install or run the CLI through `npx`:
 
-// 2. On response.created: Check gate before allowing
-handleRealtimeMessage(msg) {
-  if (msg.type === 'response.created' && !allowResponseRef.current) {
-    return; // Block response if answer too short
-  }
-  realtimeClientRef.current?.unmuteLocalMic(); // Allow audio
-}
-
-// 3. On response.done: Re-mute for next question
-if (msg.type === 'response.done') {
-  realtimeClientRef.current?.muteLocalMic();
-  // Reset refs for next answer
-}
+```powershell
+cd frontend
+npx supabase login
+npx supabase link --project-ref YOUR_PROJECT_REF
+npx supabase db push
 ```
 
-### RealtimeClient.ts (WebRTC Connection Manager)
-Manages WebRTC peer connection with OpenAI Realtime API.
+The migration process may ask for confirmation before changing the remote database. Review the migration list and confirm only when you are connected to the correct project.
 
-**New Mute/Unmute API:**
-```typescript
-// Disable all local audio tracks (prevents audio from reaching model)
-muteLocalMic(): void {
-  this.localSenders.forEach(sender => {
-    if (sender.track) {
-      sender.track.enabled = false;
-    }
-  });
-}
+The application must have the database tables before requests such as these can work:
 
-// Re-enable local audio tracks
-unmuteLocalMic(): void {
-  this.localSenders.forEach(sender => {
-    if (sender.track && !sender.track.enabled) {
-      sender.track.enabled = true;
-    }
-  });
-}
+```text
+GET  /job-postings
+POST /job-postings
+PATCH /job-postings/:id
+DELETE /job-postings/:id
 ```
 
-**Integration Pattern:**
-```typescript
-// Initialize with muted mic
-realtimeClient.startSession();
-realtimeClient.muteLocalMic(); // Start silenced
+If you see:
 
-// Unmute when response is allowed (5s+ elapsed)
-if (allowResponseRef.current) {
-  realtimeClient.unmuteLocalMic();
-}
-
-// Re-mute after Maya finishes
-on_response_done() {
-  realtimeClient.muteLocalMic();
-}
+```text
+Could not find the table 'public.job_postings' in the schema cache
 ```
 
-### InterviewWebSocket.ts (WebSocket Fallback)
-Handles fallback via WebSocket + Whisper + ElevenLabs.
+apply the migrations to the configured remote database. This is a database deployment issue, not a missing SQL program on your computer.
 
-**Transport Choice Logic:**
-1. Try WebRTC (OpenAI Realtime) - ~100ms latency
-2. Fall back to WebSocket if connection fails - ~200ms latency
+## Run The Application Locally
 
-### AudioQueue.ts (TTS Playback)
-Manages ElevenLabs TTS audio queue for seamless playback.
+Start the backend in one terminal:
 
----
+### PowerShell
 
-## 📡 Interview Flow
-
-### Phase 1: Pre-Interview Setup (Setup.tsx)
-1. User uploads CV (PDF/DOCX) → `parse-cv` edge function
-2. User enters job description → `analyze-job-description`
-3. System performs gap analysis → `gap.ts`
-4. Display recommended questions to user
-
-**Duration:** 2-5 minutes
-
-### Phase 2: Live Interview (MayaInterview.tsx)
-1. **Initialization**: Connect WebRTC to Realtime API, request ephemeral token
-2. **Question Delivery**: Maya asks first question via TTS
-3. **Answer Capture**:
-   - Silence detection starts (SILENCE_THRESHOLD_MS = 2000ms)
-   - Answer duration tracked (MIN_ANSWER_DURATION_MS = 5000ms)
-   - Real-time transcription via Whisper (fallback) or Realtime API (primary)
-4. **5-Second Gate Enforcement**:
-   - If < 5 seconds: Block Maya response, display timer
-   - If ≥ 5 seconds: Allow response.created event
-5. **Response Generation**: Maya responds based on answer and job context
-6. **Follow-ups**: 0-2 follow-ups per question based on answer quality
-7. **Question Loop**: Repeat until 8 main questions answered or 20min limit reached
-
-**Duration:** 15-20 minutes
-
-### Phase 3: Response Analysis (Summary.tsx)
-1. Retrieve all answers and Maya's assessments
-2. Call `analyze-response` for each answer (10-dimension scoring)
-3. Aggregate scores across all responses
-
-**Dimensions Evaluated:**
-- Technical correctness & depth
-- Communication clarity
-- Problem-solving approach
-- Job relevance
-- Experience evidence
-- Soft skills observed
-- Critical thinking
-- Red flags detection
-- Follow-up opportunities
-- Overall recommendation
-
-### Phase 4: Final Summary & Export
-1. Generate interview summary via `generate-summary`
-2. Compile recommendation (Hire/No-Hire with reasoning)
-3. Export full transcript
-4. Allow comparison with other candidates
-
-**Duration:** 2-3 minutes
-
----
-
-## 🎙️ Maya Prompt System
-
-
-**1. 5-Second Answer Minimum (CRITICAL)**
-```
-"MUST NOT respond until candidate has spoken for AT LEAST 5 seconds.
-If response < 5 seconds, wait silently for more content."
+```powershell
+cd "D:\E\amazon hack\poold-main\backend"
+node index.js
 ```
 
-**Implementation:**
-- Client-side: `MIN_ANSWER_DURATION_MS = 5000` in MayaInterview.tsx
-- Server-side: System prompt reinforces this rule
-- WebRTC-level: RTCRtpSender muting prevents audio before gate met
-- Result: Maya cannot interrupt candidates mid-thought
+### Command Prompt
 
-**2. Barge-in Support**
-- Maya stops immediately if candidate interrupts
-- Client detects interrupt → calls `muteLocalMic()` on realtimeClient
-
-**3. Gate Conditions**
-- `preinterview_ready` ✓
-- `recording_on` ✓
-- `interview_active` ✓
-- `tts_playback_active` = false (Maya not speaking)
-
-**4. Question Tracking**
-- Exactly 8 main questions via `[[END_QUESTION]]` marker
-- 0-2 follow-ups per question
-- Uses `question_asked_count` and `follow_up_count` to track
-
-**5. Echo Detection**
-- Compares answer similarity to previous answers
-- Flags repeated responses for lower scoring
-
-### Customization
-All behavior parameters in MAYA_SYSTEM_PROMPT can be adjusted:
-- Follow-up depth: "0-2 follow-ups" → change to "0-1"
-- Response style: Add "Be concise" or "Be thorough"
-- Evaluation focus: Add emphasis on specific skills
-
----
-
-## 🔐 Environment Variables
-
-### Frontend (.env)
-Add the following variable names to your local `.env` file (do NOT commit secrets).
-
-| Variable | Purpose | Notes |
-|----------|---------|-------|
-| `VITE_SUPABASE_PROJECT_ID` | Supabase project identifier | required for some helper scripts |
-| `VITE_SUPABASE_PUBLISHABLE_KEY` | Supabase publishable/publishable-like key | public/anon usage |
-| `VITE_SUPABASE_URL` | Supabase API endpoint | required |
-| `VITE_SUPABASE_EDGE_URL` | Supabase Edge Functions URL | used to call Edge functions |
-| `VITE_SUPABASE_ANON_KEY` | Supabase anonymous API key | required for client access |
-| `ELEVENLABS_API_KEY` | ElevenLabs API key | required for TTS fallback (keep secret)
-| `VITE_BACKEND_URL` | Optional local backend URL | optional — only if using a local backend service
-| `VITE_WEBSOCKET_URL` | Optional WebSocket URL for fallback transport | optional — only if using external WS
-
-> Note: keep all secret values out of source control. The backend repository contains any server-side secrets and deployment instructions.
-
----
-
-## 🧪 Testing & Debugging
-
-### Local WebRTC Testing
-```bash
-# 1. Start dev server
-bun dev
-
-# 2. Open http://localhost:5173
-# 3. Upload sample CV
-# 4. Enter job description
-# 5. Start interview
-# 6. Check browser console for WebRTC logs
+```bat
+cd /d "D:\E\amazon hack\poold-main\backend"
+node index.js
 ```
 
-### Console Logs to Monitor
-```
-[Realtime] Connected to OpenAI API
-[Answer] Duration: 5200ms, Allowed: true
-[Response] Maya responding...
-[Barge-in] Candidate interrupted at 3s
+The backend normally runs at:
+
+```text
+http://localhost:3000
 ```
 
-### Common Issues
+Start the frontend in a second terminal:
 
-**Issue: WebRTC connection fails**
+### PowerShell
 
-**Issue: Maya responds too quickly**
+```powershell
+cd "D:\E\amazon hack\poold-main\frontend"
+npm run dev -- --host 0.0.0.0
+```
 
-**Issue: Audio not working**
+### Command Prompt
 
-**Issue: Transcription missing**
-- WebSocket fallback uses Whisper (slower)
-- Check `transcribe-audio` function logs
-- Verify audio chunks being sent
+```bat
+cd /d "D:\E\amazon hack\poold-main\frontend"
+npm run dev -- --host 0.0.0.0
+```
 
----
+Open the address printed by Vite, normally:
 
-## 📈 Performance Optimization
+```text
+http://localhost:8080
+```
 
-### Audio Streaming
-- **Chunk Size**: 250ms MediaRecorder intervals
-- **Codec**: Opus (128kbps, webm)
-- **Latency**: ~100ms WebRTC, ~200ms WebSocket
+Use the same frontend hostname consistently. For example, do not switch randomly between `localhost:8080` and `127.0.0.1:8080` if your CORS configuration allows only one of them.
 
-### Database
-- Indexed `interview_id`, `candidate_id`, `job_id` foreign keys
-- JSONB storage for flexible response dimensions
-- RLS policies prevent cross-user access
+## Useful Commands
 
 ### Frontend
-- Lazy load interview components
-- Memoize RealtimeClient instance
-- Cancel audio timeouts on unmount
 
-
----
-
-## 🔄 Deployment
-
-### Frontend Deployment (Vercel/Netlify)
 ```bash
-# Vercel
-vercel deploy
-
-# Netlify
-netlify deploy --prod
+npm run dev       # Start development server
+npm run build     # Create production build
+npm run preview   # Preview production build
+npm run lint      # Run ESLint
 ```
 
-**Environment Variables to Set:**
-```
-VITE_SUPABASE_URL=...
-VITE_SUPABASE_ANON_KEY=...
-VITE_SUPABASE_EDGE_URL=...
-```
+### Backend
 
-
----
-
-## 📚 Documentation Links
-
-- [Supabase Documentation](https://supabase.com/docs)
-- [OpenAI Realtime API](https://platform.openai.com/docs/guides/realtime)
-- [OpenAI Realtime API Pricing](https://openai.com/pricing/realtime-api)
-- [ElevenLabs API](https://elevenlabs.io/docs)
-- [React Documentation](https://react.dev)
-- [Vite Documentation](https://vitejs.dev)
-- [Tailwind CSS](https://tailwindcss.com)
-
----
-
-## 🤝 Contributing
-
-### Development Setup
 ```bash
-git clone <repo>
-cd sonic-recruiter-pro
-bun install
-bun dev
+node index.js     # Start the backend
+node --check index.js
 ```
 
-### Code Style
-- **TypeScript**: Strict mode enabled
-- **ESLint**: Configured in eslint.config.js
-- **Components**: Functional with hooks
-- **Naming**: camelCase for variables/functions, PascalCase for components
+If port 3000 is already in use, either stop the existing backend process or start another port:
 
-### Adding Features
-1. Create feature branch: `git checkout -b feature/my-feature`
-2. Make changes with tests
-3. Submit PR with description
-4. Address review feedback
-5. Merge to main
+```powershell
+$env:PORT=3001
+node index.js
+```
 
-### Submitting Issues
-Include:
-- Reproducible steps
-- Expected vs actual behavior
-- Browser/OS environment
-- Console error logs
+Then update `VITE_BACKEND_URL` in `frontend/.env` to match.
 
----
+## Important API Routes
 
-## 📄 License
+The backend exposes these main routes:
 
-MIT License - Feel free to use this project for personal and commercial purposes.
+| Route | Purpose |
+|---|---|
+| `POST /auth/signup` | Create an account |
+| `POST /auth/login` | Log in and receive an access token |
+| `POST /auth/refresh` | Refresh a login session |
+| `POST /auth/logout` | Log out |
+| `POST /upload-cv` | Upload a CV file |
+| `POST /parse-cv-content` | Parse extracted CV text |
+| `POST /analyze-job-desc` | Analyze a job description |
+| `GET /job-postings` | List the current user's job postings |
+| `POST /job-postings` | Create a job posting |
+| `PATCH /job-postings/:id` | Update a job posting |
+| `DELETE /job-postings/:id` | Delete a job posting |
+| `POST /generate-questions` | Generate interview questions |
+| `POST /transcribe-audio` | Transcribe audio |
+| `POST /tts-labs` | Generate ElevenLabs speech when enabled |
+| `POST /generate-summary` | Generate an interview summary |
+| `POST /delete-user-account` | Delete the current account |
+| Socket.IO `/interview` | Run the live Maya interview |
 
----
+Most routes require an `Authorization` header:
 
-## 💬 Support & Feedback
+```text
+Authorization: Bearer YOUR_ACCESS_TOKEN
+```
 
-For questions or feedback:
-- Open an issue on GitHub
-- Check existing documentation
-- Review codebase comments
-- Contact the development team
+The frontend normally adds this header automatically.
 
----
+## Typical User Journey
 
-**Built with ❤️ for better hiring**
+### Candidate
 
-Last Updated: 2026
+1. Open the website.
+2. Create an account.
+3. Log in.
+4. Upload a CV.
+5. Review or enter a job description.
+6. Start an interview.
+7. Answer by voice or text.
+8. Review the transcript and summary.
+
+### Interviewer
+
+1. Create an interviewer account.
+2. Log in.
+3. Open Manage Jobs.
+4. Create a job posting.
+5. Browse interview data and candidate results.
+
+## Troubleshooting
+
+### The backend says `EADDRINUSE`
+
+Another process is already using port 3000. Stop that process or choose another port. Do not start multiple backends on the same port.
+
+### The browser says `Failed to fetch`
+
+Check all of the following:
+
+- The backend is running.
+- `VITE_BACKEND_URL` points to the backend address.
+- The frontend was restarted after changing `.env`.
+- The backend's `FRONTEND_ORIGIN` matches the browser address.
+- The browser is using `localhost` or `127.0.0.1` consistently.
+
+### Job postings cannot be found
+
+Apply the database migrations and make sure the backend is connected to the correct database. The frontend page does not create database tables automatically.
+
+### CV parsing fails
+
+Check that:
+
+- The CV is a supported file type, usually PDF.
+- S3 credentials and bucket configuration are correct.
+- `GROQ_API_KEY` is configured.
+- The backend is running.
+- The browser Network tab shows a successful `/upload-cv` request followed by `/parse-cv-content`.
+
+### Maya repeats a question
+
+Check that the microphone is working and that the browser grants microphone permission. The WebSocket fallback pauses microphone recording while Maya speaks so Maya's own voice is not sent back as the candidate's response.
+
+### Maya has no voice
+
+The default setting uses browser speech. Check that the browser is not muted and that the page has permission to play audio. ElevenLabs free accounts may reject library voices with a payment-required response.
+
+### The browser shows a TypeScript or build error
+
+Run:
+
+```bash
+cd frontend
+npm run build
+```
+
+Read the first error in the output. Warnings about large bundles or outdated Browserslist data do not necessarily prevent the application from running.
+
+## Security Notes
+
+- Do not commit `.env` files.
+- Do not expose Cognito secrets, database passwords, AWS keys, Groq keys, OpenAI keys, or ElevenLabs keys.
+- Rotate any secret that has been pasted into a public issue, chat, screenshot, or repository.
+- Keep authentication and ownership checks in the backend and database, not only in frontend code.
+- Use HTTPS and secure cookie settings in production.
+- Use separate development and production credentials.
+
+## Production Checklist
+
+Before deploying:
+
+- Set production frontend and backend URLs.
+- Use HTTPS for both frontend and backend.
+- Configure production CORS origins.
+- Configure Cognito production settings.
+- Configure PostgreSQL SSL as required by the provider.
+- Configure S3 bucket permissions and CORS.
+- Apply all database migrations.
+- Confirm RLS and ownership policies.
+- Set production AI provider keys as deployment secrets.
+- Test signup, login, refresh, logout, CV upload, job posting creation, and one complete interview.
+- Check browser Network and Application tabs for failed requests and missing session data.
+
+## License
+
+This project currently uses the license information defined in the package metadata. Confirm the intended license with the project owner before publishing or distributing the application.
