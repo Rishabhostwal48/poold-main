@@ -45,17 +45,13 @@ class InterviewWebSocket {
   private noRetryCodes: Set<number>;
 
   constructor(url?: string, token?: string, opts: WSClientOptions = {}) {
-    // Hardcode Supabase project ref and anon key for reliable client connectivity
-    const PROJECT_REF = "sxfjoqvwtjsiskqwftln";
-    const ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN4ZmpvcXZ3dGpzaXNrcXdmdGxuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTgwMjIxMzcsImV4cCI6MjA3MzU5ODEzN30.-XKr81Op91guPTO604XqAMciSb6zYl30TAsujeGKqW4";
-  
-    const baseUrl = url || import.meta.env.VITE_WEBSOCKET_URL;
-    const anon = token || ANON_KEY;
+    const baseUrl = url || import.meta.env.VITE_WEBSOCKET_URL || "ws://localhost:3000/interview";
+    const authToken = token || "";
 
     const u = new URL(baseUrl);
-    if (!u.searchParams.has("apikey")) u.searchParams.set("apikey", anon);
+    if (authToken && !u.searchParams.has("token")) u.searchParams.set("token", authToken);
     this.url = u.toString();
-    this.subprotocols = ["jwt", anon];
+    this.subprotocols = authToken ? ["jwt", authToken] : undefined;
 
     // Options
     this.maxReconnectAttempts = opts.maxReconnectAttempts ?? this.maxReconnectAttempts;

@@ -3,7 +3,7 @@
  * Provides interfaces to OpenAI GPT models and Whisper for speech-to-text
  */
 
-import { supabase } from '@/integrations/supabase/client';
+import { getAccessToken } from '@/lib/backendAuth';
 
 export interface OpenAIResponse {
   success: boolean;
@@ -31,7 +31,7 @@ export async function transcribeAudio(
   language?: string
 ): Promise<{ success: boolean; data?: WhisperTranscription; error?: string }> {
   try {
-    // TODO: Replace with actual OpenAI Whisper API call via Supabase Edge Function
+    // Transcribe audio via backend Express service
     console.log('🎤 [PLACEHOLDER] Transcribing audio with Whisper:', {
       size: audioBlob.size,
       type: audioBlob.type,
@@ -39,10 +39,12 @@ export async function transcribeAudio(
     });
 
     let data, error;
-await fetch(`${import.meta.env.VITE_BACKEND_URL}/transcribe-audio`,{
+    const token = getAccessToken();
+    await fetch(`${import.meta.env.VITE_BACKEND_URL}/transcribe-audio`,{
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {})
       },
       body: JSON.stringify({
         // Convert blob to base64 for transmission
@@ -87,10 +89,12 @@ export async function generateInterviewQuestions(
       jobDescriptionLength: jobDescription.length
     });
     let data, error;
- await fetch(`${import.meta.env.VITE_BACKEND_URL}/generate-questions`,{
+    const token = getAccessToken();
+    await fetch(`${import.meta.env.VITE_BACKEND_URL}/generate-questions`,{
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {})
       },
        body: JSON.stringify({
         jobDescription,
@@ -143,10 +147,12 @@ export async function analyzeResponse(
     //   }
     // });
     let data, error;
- await fetch(`${import.meta.env.VITE_BACKEND_URL}/analyze-response`,{
+    const token = getAccessToken();
+    await fetch(`${import.meta.env.VITE_BACKEND_URL}/analyze-response`,{
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {})
       },
        body: JSON.stringify({
         question,
@@ -196,11 +202,12 @@ export async function generateInterviewSummary(interviewData: any): Promise<{ su
     // });
 
     let data, error;
-
-await fetch(`${import.meta.env.VITE_BACKEND_URL}/generate-summary`,{
+    const token = getAccessToken();
+    await fetch(`${import.meta.env.VITE_BACKEND_URL}/generate-summary`,{
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {})
       },
        body: JSON.stringify({
         interviewData,
@@ -254,28 +261,30 @@ export async function parseCVContent(
     //     model: 'gpt-4o-mini' // Cost-effective for structured parsing
     //   }
     // });
-    let data, error;
- 
-await fetch(`${import.meta.env.VITE_BACKEND_URL}/parse-cv-content`,{
+    let data: any;
+    const token = getAccessToken();
+    const response = await fetch(`${import.meta.env.VITE_BACKEND_URL}/parse-cv-content`,{
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {})
       },
         body: JSON.stringify({
         cvText,
         model: 'gpt-4o-mini' // Cost-effective for structured parsing
       })
-    }).then(res => res.json()).then(resData => {
-      data = resData;
-    }).catch(err => {
-      error = err;
     });
+    data = await response.json().catch(() => ({}));
 
-    if (error) {
-      return { success: false, error: error.message };
+    if (!response.ok) {
+      return { success: false, error: data.error || `CV parser failed with status ${response.status}` };
     }
 
-    return { success: true, data: data.parsedCV };
+    if (!data.profile || typeof data.profile !== 'object') {
+      return { success: false, error: 'CV parser returned no profile' };
+    }
+
+    return { success: true, data: data.profile };
   } catch (error) {
     console.error('CV parsing error:', error);
     return { 

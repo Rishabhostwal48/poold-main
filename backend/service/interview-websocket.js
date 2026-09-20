@@ -8,11 +8,23 @@ const db = require('../db');
 const dotenv = require('dotenv');
 dotenv.config();
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-supabase-authorization'
-};
+const cognito = require('../auth/cognito');
+
+const allowedOrigins = new Set([
+  process.env.FRONTEND_ORIGIN,
+  'http://localhost:8080',
+  'http://127.0.0.1:8080',
+].filter(Boolean));
+
+function applyCors(req, res) {
+  const origin = req.headers.origin;
+  if (origin && allowedOrigins.has(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+  }
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'authorization, x-client-info, apikey, content-type');
+}
 
 // ---- Helpers ----
 function pcm16ToWav(pcm, sr = 16000, channels = 1) {
@@ -62,13 +74,16 @@ function writeJSON(socket, obj) {
 }
 
 // ---- Server ----
+
+
+// ---- Server ----
 router.get('/', (req, res) => {
-  res.set(corsHeaders);
+  applyCors(req, res);
   res.json({ status: 'WebSocket endpoint ready. Connect via socket.io' });
 });
 
 router.options('/', (req, res) => {
-  res.set(corsHeaders);
+  applyCors(req, res);
   res.sendStatus(200);
 });
 
@@ -76,7 +91,65 @@ router.options('/', (req, res) => {
 function setupWebSocketHandlers(io) {
   const nsp = io.of('/interview');
 
+  nsp.use(async (socket, next) => {
+    try {
+      const authHeader = socket.handshake.auth?.token || socket.handshake.headers?.authorization;
+      if (!authHeader) {
+        return next(new Error('Authentication error: Missing token'));
+      }
+
+      const token = authHeader.replace(/^Bearer\s+/i, '');
+      if (!token) {
+        return next(new Error('Authentication error: Empty token'));
+      }
+
+      let authenticatedUser = null;
+
+      try {
+        const decoded = await cognito.verifyToken(token);
+        if (decoded && decoded.sub) {
+          if (decoded.token_use !== 'access') {
+            return next(new Error('Authentication error: Token must be an access token'));
+          }
+
+          const { rows } = await db.query(
+            'SELECT id, email FROM app_users WHERE cognito_sub = $1',
+            [decoded.sub]
+          );
+
+          if (rows.length > 0) {
+            authenticatedUser = {
+              id: rows[0].id,
+              email: rows[0].email,
+            };
+          } else {
+            return next(new Error('Authentication error: User mapping not found'));
+          }
+        }
+      } catch (cognitoErr) {
+        if (cognitoErr.message && cognitoErr.message.includes('token_use')) {
+          return next(cognitoErr);
+        }
+        return next(new Error('Authentication error: Invalid authentication token'));
+      }
+
+      if (!authenticatedUser) {
+        return next(new Error('Authentication error: Invalid authentication token'));
+      }
+
+      socket.user = authenticatedUser;
+      return next();
+    } catch (err) {
+      return next(new Error('Authentication error: ' + err.message));
+    }
+  });
+
   nsp.on('connection', async (socket) => {
+    if (!socket.user || !socket.user.id) {
+      socket.disconnect(true);
+      return;
+    }
+
     // ---- State ----
     const sessionId = require('crypto').randomUUID();
     const startTime = Date.now();
@@ -201,14 +274,16 @@ ${currentFollowUpCount < MAX_FOLLOW_UPS_PER_QUESTION ? `You can ask ${MAX_FOLLOW
 — Be kind, be concise, and never talk over the candidate—or over yourself. 💛`;
     }
 
-    // ---- OpenAI (question generation) ----
+    // ---- Groq LLM (Maya question generation) ----
     async function generateMayaResponse(userMessage) {
       try {
-        const openAIApiKey = process.env.OPENAI_API_KEY;
-        if (!openAIApiKey) {
-          console.error('❌ OPENAI_API_KEY not configured');
+        const groqApiKey = process.env.GROQ_API_KEY;
+        if (!groqApiKey) {
+          console.error('❌ GROQ_API_KEY not configured');
           return null;
         }
+
+        const targetModel = process.env.GROQ_MODEL_FAST || 'openai/gpt-oss-20b';
 
         if (userMessage && userMessage.trim()) {
           conversationHistory.push({
@@ -217,14 +292,14 @@ ${currentFollowUpCount < MAX_FOLLOW_UPS_PER_QUESTION ? `You can ask ${MAX_FOLLOW
           });
         }
 
-        const resp = await fetch('https://api.openai.com/v1/chat/completions', {
+        const resp = await fetch('https://api.groq.com/openai/v1/chat/completions', {
           method: 'POST',
           headers: {
-            Authorization: `Bearer ${openAIApiKey}`,
+            Authorization: `Bearer ${groqApiKey}`,
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({
-            model: 'gpt-4o-mini',
+            model: targetModel,
             messages: [
               {
                 role: 'system',
@@ -238,12 +313,12 @@ ${currentFollowUpCount < MAX_FOLLOW_UPS_PER_QUESTION ? `You can ask ${MAX_FOLLOW
         });
 
         if (!resp.ok) {
-          console.error('❌ OpenAI error:', resp.status, await resp.text());
+          console.error('❌ Groq API error:', resp.status, await resp.text());
           return null;
         }
 
         const data = await resp.json();
-        console.log('🧠 Maya response generated:', data);
+        console.log('🧠 Maya Groq response generated:', data);
         const mayaResponse = data?.choices?.[0]?.message?.content ?? '';
         const match = mayaResponse.match(/(.*?)\[\[END_QUESTION\]\]/s);
         const questionText = (match ? match[1] : mayaResponse).trim();
@@ -451,12 +526,23 @@ ${currentFollowUpCount < MAX_FOLLOW_UPS_PER_QUESTION ? `You can ask ${MAX_FOLLOW
 
         await db.query(
           `INSERT INTO maya_interviews
-             (session_id, candidate_name, candidate_phone,
+             (session_id, user_email, candidate_name, candidate_phone,
               started_at, ended_at, duration_seconds,
               questions, responses, transcript)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+           ON CONFLICT (session_id) DO UPDATE SET
+             user_email = EXCLUDED.user_email,
+             candidate_name = COALESCE(EXCLUDED.candidate_name, maya_interviews.candidate_name),
+             candidate_phone = COALESCE(EXCLUDED.candidate_phone, maya_interviews.candidate_phone),
+             ended_at = EXCLUDED.ended_at,
+             duration_seconds = EXCLUDED.duration_seconds,
+             questions = EXCLUDED.questions,
+             responses = EXCLUDED.responses,
+             transcript = EXCLUDED.transcript,
+             updated_at = now()`,
           [
             sessionId,
+            socket.user ? socket.user.email : null,
             candidateName || null,
             candidatePhone || null,
             new Date(startTime).toISOString(),
@@ -550,6 +636,21 @@ ${currentFollowUpCount < MAX_FOLLOW_UPS_PER_QUESTION ? `You can ask ${MAX_FOLLOW
         if (typeof msg.language === 'string') language = msg.language;
         if (typeof msg.candidateName === 'string') candidateName = msg.candidateName;
         if (typeof msg.candidatePhone === 'string') candidatePhone = msg.candidatePhone;
+        if (typeof msg.session_id === 'string' && msg.session_id) {
+          db.query(
+            'SELECT session_id, user_email FROM maya_interviews WHERE session_id = $1',
+            [msg.session_id]
+          ).then(({ rows: existingRows }) => {
+            if (existingRows.length > 0 && existingRows[0].user_email && existingRows[0].user_email !== socket.user.email) {
+              writeJSON(socket, { type: 'error', message: 'Forbidden: Unauthorized access to interview session' });
+              socket.disconnect(true);
+            } else {
+              sessionId = msg.session_id;
+            }
+          }).catch(err => {
+            console.error('Error checking session ownership:', err);
+          });
+        }
 
         console.log('📝 Candidate info received:', {
           candidateName,

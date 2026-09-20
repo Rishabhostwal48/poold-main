@@ -7,7 +7,6 @@ dotenv.config();
 
 const router = express.Router();
 
-
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -29,6 +28,24 @@ function pickFields(body) {
     }
     return result;
   }, {});
+}
+
+async function getUserRoles(userId) {
+  const { rows } = await db.query(
+    'SELECT role FROM user_roles WHERE user_id = $1',
+    [userId]
+  );
+  return rows.map(r => r.role);
+}
+
+async function requireInterviewerOrAdminRole(req, res) {
+  const roles = await getUserRoles(req.user.id);
+  const hasAllowedRole = roles.some(r => r === 'interviewer' || r === 'admin');
+  if (!hasAllowedRole) {
+    res.status(403).json({ error: 'Forbidden: Interviewer or admin role required' });
+    return false;
+  }
+  return true;
 }
 
 router.use(authenticate);
@@ -92,10 +109,12 @@ router.get('/:id', async (req, res) => {
 
 // ---------------------------------------------------------------------------
 // POST /job-postings — create a new job posting
-// Authorization: Supabase RLS allowed any authenticated user to insert with
-//   user_id = auth.uid(). Preserved: user_id is set to req.user.id server-side.
+// Authorization: Interviewer or Admin role required. Ownership bound to req.user.id.
 // ---------------------------------------------------------------------------
 router.post('/', async (req, res) => {
+  const allowed = await requireInterviewerOrAdminRole(req, res);
+  if (!allowed) return;
+
   const values = pickFields(req.body);
   if (!values.title || !values.description) {
     return res.status(400).json({ error: 'Title and description are required' });

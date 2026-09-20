@@ -4,24 +4,36 @@ const multer = require('multer');
 const dotenv = require('dotenv');
 const { v4: uuidv4 } = require('uuid');
 const s3Storage = require('../storage/s3');
+const { authenticate } = require('../middleware/authenticate');
 
 dotenv.config();
+
+const allowedOrigins = new Set([
+  process.env.FRONTEND_ORIGIN,
+  'http://localhost:8080',
+  'http://127.0.0.1:8080',
+].filter(Boolean));
+
+function applyCors(req, res) {
+  const origin = req.headers.origin;
+  if (origin && allowedOrigins.has(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+  }
+  res.setHeader('Access-Control-Allow-Methods', 'POST,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type, x-client-info, apikey');
+}
 
 // Memory storage for multipart files
 const upload = multer({ storage: multer.memoryStorage() });
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
-
 router.options('/', (req, res) => {
-  res.set(corsHeaders);
+  applyCors(req, res);
   res.sendStatus(200);
 });
 
-router.post('/', upload.single('file'), async (req, res) => {
-  res.set(corsHeaders);
+router.post('/', authenticate, upload.single('file'), async (req, res) => {
+  applyCors(req, res);
 
   try {
     if (!req.file) {

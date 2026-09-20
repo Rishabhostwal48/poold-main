@@ -21,8 +21,7 @@ app.use(cors({
     'Content-Type',
     'Authorization',
     'x-client-info',
-    'apikey',
-    'x-supabase-api-version'
+    'apikey'
   ],
   credentials: true
 }));
@@ -44,6 +43,7 @@ app.get('/', (req, res) => {
   res.send('Hello World!');
 });
 app.use('/auth', require('./service/auth'));
+app.use('/api/job-postings', require('./service/job-postings'));
 app.use('/api', require('./service/api'));
 app.use('/job-postings', require('./service/job-postings'));
 app.use('/parse-cv', require('./service/parse-cv'));   //
@@ -57,7 +57,6 @@ app.use('/analyze-response', require('./service/analyze-response'));//
 app.use('/validate-answer-duration', require('./service/validate-answer-duration'));
 app.use('/generate-summary', require('./service/generate-summary'));//
 app.use('/parse-cv-content', require('./service/parse-cv-content'));//
-app.use('/realtime-session', require('./service/realtime-session'));//
 app.use('/save-maya-interview', require('./service/save-maya-interview'));//
 // Require the interview module once and mount its router
 let interviewModule;

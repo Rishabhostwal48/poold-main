@@ -5,11 +5,17 @@ import { backendApi } from "@/lib/backendApi";
 export type UserRole = "admin" | "interviewer" | "interviewee";
 
 export const useUserRole = () => {
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const [roles, setRoles] = useState<UserRole[]>([]);
+  // Keep loading=true until we know auth is settled AND roles are fetched.
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // Do not resolve roles while auth is still initialising.
+    // This prevents the RoleProtectedRoute from seeing (user!=null, roles=[])
+    // for one render cycle between authLoading→false and the roles fetch.
+    if (authLoading) return;
+
     let cancelled = false;
 
     const loadRoles = async () => {
@@ -35,6 +41,7 @@ export const useUserRole = () => {
         }
       } catch (err) {
         console.error("Error fetching user roles from backend API:", err);
+        // Fallback: use roles already stored in user metadata (set by AuthContext)
         const metadataRoles = (user.user_metadata?.roles || []) as UserRole[];
         if (!cancelled) {
           setRoles(metadataRoles);
@@ -48,7 +55,7 @@ export const useUserRole = () => {
     return () => {
       cancelled = true;
     };
-  }, [user]);
+  }, [user, authLoading]); // Re-run when auth settles or user changes
 
   const hasRole = useCallback((role: UserRole) => roles.includes(role), [roles]);
 

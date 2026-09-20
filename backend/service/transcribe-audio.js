@@ -1,14 +1,25 @@
 const express = require('express');
 const router = express.Router();
 const dotenv = require('dotenv');
+const { authenticate } = require('../middleware/authenticate');
+
 dotenv.config();
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'POST,OPTIONS',
-  'Access-Control-Allow-Headers':
-    'authorization, x-client-info, x-supabase-authorization, apikey, content-type',
-};
+const allowedOrigins = new Set([
+  process.env.FRONTEND_ORIGIN,
+  'http://localhost:8080',
+  'http://127.0.0.1:8080',
+].filter(Boolean));
+
+function applyCors(req, res) {
+  const origin = req.headers.origin;
+  if (origin && allowedOrigins.has(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+  }
+  res.setHeader('Access-Control-Allow-Methods', 'POST,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'authorization, x-client-info, x-supabase-authorization, apikey, content-type');
+}
 
 // Convert base64 to Buffer
 function base64ToBuffer(b64) {
@@ -26,13 +37,15 @@ function pickFilename(mimeType) {
 }
 
 router.options('/', (req, res) => {
-  res.set(corsHeaders);
+  applyCors(req, res);
   res.sendStatus(200);
 });
 
-router.post('/', express.json({ limit: '30mb' }), async (req, res) => {
+router.post('/', authenticate, express.json({ limit: '30mb' }), async (req, res) => {
+  applyCors(req, res);
+
   try {
-    const { audio, language = 'en', model = 'whisper-1', mimeType = 'audio/webm' } = req.body;
+    const { audio, language = 'en', model = 'whisper-1', mimeType = 'audio/webm' } = req.body || {};
 
     if (!audio || typeof audio !== 'string') {
       return res.status(400).json({ error: 'No audio data provided (base64 string expected)' });
@@ -93,5 +106,3 @@ router.post('/', express.json({ limit: '30mb' }), async (req, res) => {
 });
 
 module.exports = router;
-
- 

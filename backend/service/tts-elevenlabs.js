@@ -2,25 +2,35 @@
 const express = require('express');
 const router = express.Router();
 const dotenv = require('dotenv');
+const { authenticate } = require('../middleware/authenticate');
+
 dotenv.config();
+
+const allowedOrigins = new Set([
+  process.env.FRONTEND_ORIGIN,
+  'http://localhost:8080',
+  'http://127.0.0.1:8080',
+].filter(Boolean));
+
+function applyCors(req, res) {
+  const origin = req.headers.origin;
+  if (origin && allowedOrigins.has(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+  }
+  res.setHeader('Access-Control-Allow-Methods', 'POST,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'authorization, x-client-info, apikey, content-type, x-supabase-authorization');
+}
 
 router.use(express.json({ limit: '50mb' }));
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'POST,OPTIONS',
-  'Access-Control-Allow-Headers':
-    'authorization, x-client-info, apikey, content-type, x-supabase-authorization',
-};
-
 router.options('/', (req, res) => { 
-  res.set(corsHeaders);
+  applyCors(req, res);
   res.sendStatus(200);
 });
 
-router.post('/', async (req, res) => {
-  // Set CORS headers on the response
-  res.set(corsHeaders);
+router.post('/', authenticate, async (req, res) => {
+  applyCors(req, res);
 
   try {
     // Validate req.body is an object
@@ -77,7 +87,6 @@ router.post('/', async (req, res) => {
     res.set({
       'Content-Type': 'audio/mpeg',
       'Cache-Control': 'public, max-age=60',
-      ...corsHeaders,
     });
     return res.status(200).send(buffer);
   } catch (e) {

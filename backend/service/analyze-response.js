@@ -1,34 +1,48 @@
-
 const express = require('express');
 const router = express.Router();
 const dotenv = require('dotenv');
+const { authenticate } = require('../middleware/authenticate');
+
 dotenv.config();
+
+const allowedOrigins = new Set([
+  process.env.FRONTEND_ORIGIN,
+  'http://localhost:8080',
+  'http://127.0.0.1:8080',
+].filter(Boolean));
+
+function applyCors(req, res) {
+  const origin = req.headers.origin;
+  if (origin && allowedOrigins.has(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+  }
+  res.setHeader('Access-Control-Allow-Methods', 'POST,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'authorization, x-client-info, apikey, content-type');
+}
 
 router.use(express.json({ limit: '500kb' }));
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
-
 router.options('/', (req, res) => {
-  res.set(corsHeaders);
+  applyCors(req, res);
   res.sendStatus(200);
 });
 
-router.post('/', async (req, res) => {
-  res.set(corsHeaders);
+router.post('/', authenticate, async (req, res) => {
+  applyCors(req, res);
 
   try {
-    const { question, response, context, model = 'gpt-4o' } = req.body || {};
+    const { question, response, context, model } = req.body || {};
 
-    const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-    if (!OPENAI_API_KEY) {
-      return res.status(500).json({ error: 'OpenAI API key not configured' });
+    const GROQ_API_KEY = process.env.GROQ_API_KEY;
+    if (!GROQ_API_KEY) {
+      return res.status(500).json({ error: 'Groq API key not configured' });
     }
 
-    console.log('🧠 Analyzing response:', {
-      model,
+    const targetModel = process.env.GROQ_MODEL_TEXT || 'openai/gpt-oss-120b';
+
+    console.log('🧠 Analyzing response with Groq:', {
+      model: targetModel,
       questionLength: question?.length || 0,
       responseLength: response?.length || 0
     });
@@ -82,28 +96,29 @@ ${JSON.stringify(context, null, 2)}
 
 Analyze this response comprehensively.`;
 
-    // Call OpenAI API
-    const openaiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+    // Call Groq API
+    const openaiResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${OPENAI_API_KEY}`,
+        'Authorization': `Bearer ${GROQ_API_KEY}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model,
+        model: targetModel,
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt }
         ],
-        max_completion_tokens: 3000,
-        temperature: 0.3 // Lower temperature for more consistent analysis
+        response_format: { type: 'json_object' },
+        max_tokens: 3000,
+        temperature: 0.3
       }),
     });
 
     if (!openaiResponse.ok) {
       const errorText = await openaiResponse.text();
-      console.error('OpenAI API error:', errorText);
-      throw new Error(`OpenAI API error: ${openaiResponse.status}`);
+      console.error('Groq API error:', errorText);
+      throw new Error(`Groq API error: ${openaiResponse.status}`);
     }
 
     const result = await openaiResponse.json();

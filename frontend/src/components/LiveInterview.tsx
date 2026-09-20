@@ -179,42 +179,9 @@ const navigate = useNavigate();
     startingRef.current = true;
     try {
       setError("");
-      // Try WebRTC first
-      const rtc = new RealtimeClient({
-        onMessage: (m) => handleMessage(m),
-        onConnected: () => {
-          setIsConnected(true);
-          setUsingRTC(true);
-          setError("");
-          toast({
-            title: "Connected (WebRTC)",
-            description: "AI interviewer (WebRTC) is connected.",
-          });
-        },
-        onDisconnected: () => {
-          setIsConnected(false);
-          // fall back to websocket if not already using it
-        },
-        onError: (err) => {
-          console.warn("RealtimeClient error:", err);
-        },
-        onSpeakingChange: handleSpeakingChange
-      });
-      rtcRef.current = rtc;
-
-      const started = await rtc.startSession();
-      if (started) {
-        // WebRTC active; do not start WebSocket recording
-        setUsingRTC(true);
-        return;
-      }
-
-      // If startSession returned false, try websocket fallback
-      console.log("WebRTC startSession failed; falling back to WebSocket");
       await startWebsocketFallback();
     } catch (err) {
-      console.warn("WebRTC setup failed, falling back to WebSocket:", err);
-      await startWebsocketFallback();
+      console.warn("Interview setup failed:", err);
     } finally {
       startingRef.current = false;
     }

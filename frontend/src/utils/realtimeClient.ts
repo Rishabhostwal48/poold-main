@@ -1,4 +1,4 @@
-import { supabase } from "@/integrations/supabase/client";
+import { getAccessToken } from "@/lib/backendAuth";
 
 interface RealtimeMessage {
   type: string;
@@ -48,12 +48,16 @@ export class RealtimeClient {
     try {
       console.log('[Realtime] Starting session...');
       
-      // Get ephemeral token from Supabase function
-      // const { data, error } = await supabase.functions.invoke("realtime-session");
-      
       let data, error;
+      const token = getAccessToken();
+      const headers: Record<string, string> = {};
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+
        await fetch(`${import.meta.env.VITE_BACKEND_URL}/realtime-session`,{
         method: "POST",
+        headers,
        })
        .then(async (response) => {
          if (!response.ok) {

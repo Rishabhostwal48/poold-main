@@ -1,171 +1,142 @@
 const express = require('express');
 const router = express.Router();
 const dotenv = require('dotenv');
+const { authenticate } = require('../middleware/authenticate');
+
 dotenv.config();
+
+const allowedOrigins = new Set([
+  process.env.FRONTEND_ORIGIN,
+  'http://localhost:8080',
+  'http://127.0.0.1:8080',
+].filter(Boolean));
+
+function applyCors(req, res) {
+  const origin = req.headers.origin;
+  if (origin && allowedOrigins.has(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+  }
+  res.setHeader('Access-Control-Allow-Methods', 'POST,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'authorization, x-client-info, apikey, content-type');
+}
 
 router.use(express.json({ limit: '1mb' }));
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
-
 router.options('/', (req, res) => {
-  res.set(corsHeaders);
+  applyCors(req, res);
   res.sendStatus(200);
 });
 
-router.post('/', async (req, res) => {
-  res.set(corsHeaders);
+router.post('/', authenticate, async (req, res) => {
+  applyCors(req, res);
 
   try {
-    const { cvText, model = 'gpt-4o-mini' } = req.body || {};
+    const { cvText, model } = req.body || {};
 
     if (!cvText) {
       return res.status(400).json({ error: 'No CV text provided' });
     }
 
-    const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-    if (!OPENAI_API_KEY) {
-      return res.status(500).json({ error: 'OpenAI API key not configured' });
+    const GROQ_API_KEY = process.env.GROQ_API_KEY;
+    if (!GROQ_API_KEY) {
+      return res.status(500).json({ error: 'Groq API key not configured' });
     }
 
-    console.log('📄 Parsing CV content:', {
+    const targetModel = process.env.GROQ_MODEL_TEXT || 'openai/gpt-oss-120b';
+
+    console.log('📄 Parsing CV content with Groq:', {
       textLength: cvText.length,
-      model
+      model: targetModel
     });
 
     const systemPrompt = `You are an expert HR analyst and resume parser. Parse the following CV/resume text and extract structured information.
 
 Extract and organize the following information:
-- Personal information (name, location, contact details)
-- Work experience with achievements and technologies used
-- Education background
-- Skills organized by category
-- Certifications and awards
-- Key highlights and accomplishments
+1. Contact Details: Name, email, phone, location, LinkedIn/website
+2. Summary/Objective: Professional summary or objective statement
+3. Skills: Technical skills, soft skills, tools, frameworks, languages
+4. Work Experience: Companies, job titles, dates, key responsibilities, achievements
+5. Education: Degrees, institutions, graduation dates, field of study
+6. Certifications & Projects: Relevant certifications and key projects
 
 Return ONLY a JSON object with this structure:
 {
-  "personalInfo": {
-    "name": "Full Name",
-    "location": "City, State/Country",
-    "email": "email@example.com",
-    "phone": "phone number",
-    "linkedin": "linkedin profile url",
-    "website": "personal website url"
-  },
+  "full_name": "Full Name",
+  "email": "email@example.com",
+  "phone": "phone number",
+  "location": "City, Country",
+  "summary": "Professional summary...",
+  "skills": ["Skill 1", "Skill 2", "Skill 3"],
   "experience": [
     {
-      "title": "Job Title",
       "company": "Company Name",
-      "startDate": "YYYY-MM",
-      "endDate": "YYYY-MM or present",
-      "location": "City, State",
-      "achievements": [
-        "Quantified achievement 1",
-        "Quantified achievement 2"
-      ],
-      "technologies": ["tech1", "tech2"],
-      "domains": ["domain1", "domain2"]
+      "title": "Job Title",
+      "duration": "Start Date - End Date",
+      "highlights": ["Key achievement 1", "Key responsibility 2"]
     }
   ],
   "education": [
     {
-      "degree": "Degree Title",
-      "institution": "University/School Name",
-      "graduationDate": "YYYY",
-      "location": "City, State",
-      "gpa": "GPA if mentioned",
-      "honors": "magna cum laude, etc."
+      "institution": "University Name",
+      "degree": "Degree Name",
+      "field_of_study": "Field",
+      "year": "Graduation Year"
     }
   ],
-  "skills": {
-    "Programming Languages": ["skill1", "skill2"],
-    "Frameworks": ["framework1", "framework2"],
-    "Tools": ["tool1", "tool2"],
-    "Soft Skills": ["skill1", "skill2"]
-  },
-  "certifications": [
-    {
-      "name": "Certification Name",
-      "issuer": "Issuing Organization",
-      "date": "YYYY-MM",
-      "expiryDate": "YYYY-MM if applicable"
-    }
-  ],
-  "projects": [
-    {
-      "name": "Project Name",
-      "description": "Brief description",
-      "technologies": ["tech1", "tech2"],
-      "achievements": ["achievement1", "achievement2"]
-    }
-  ],
-  "summary": "Professional summary or objective statement",
-  "yearsExperience": 5
+  "certifications": ["Certification 1", "Certification 2"],
+  "languages": ["Language 1", "Language 2"]
 }`;
 
-    const userPrompt = `Parse the following CV/resume and extract structured information:\n\n${cvText}\n\nFocus on:\n1. Accurate extraction of personal information\n2. Detailed work experience with quantified achievements\n3. Technologies and tools used in each role\n4. Educational background and certifications\n5. Skills organized by relevant categories\n6. Calculate total years of professional experience`;
-
-    const messages = [
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: userPrompt }
-    ];
-
-    // Call OpenAI API
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    // Call Groq API
+    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${OPENAI_API_KEY}`,
+        'Authorization': `Bearer ${GROQ_API_KEY}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model,
-        messages,
-        max_completion_tokens: 3000,
-        temperature: 0.1 // Very low temperature for accurate extraction
+        model: targetModel,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: `Parse the following CV text:\n\n${cvText}` }
+        ],
+        response_format: { type: 'json_object' },
+        max_tokens: 2000,
+        temperature: 0.2
       }),
     });
 
     if (!response.ok) {
-      const errorText = await response.text();
-      console.error('OpenAI API error:', errorText);
-      return res.status(502).json({ error: 'OpenAI API error', status: response.status, body: errorText });
+      const errorText = await response.text().catch(() => '');
+      console.error('Groq API error:', errorText);
+      return res.status(502).json({ error: `Groq API error: ${response.status}`, body: errorText });
     }
 
     const result = await response.json();
-    const parsedText = result.choices?.[0]?.message?.content || '';
-    
+    const contentText = result.choices?.[0]?.message?.content || '';
+
     // Parse the JSON response
-    let parsedCV;
+    let parsedProfile;
     try {
-      let cleanText = parsedText.trim();
-      if (cleanText.startsWith('```json')) {
-        cleanText = cleanText.replace(/^```json\s*/, '').replace(/\s*```$/, '');
-      } else if (cleanText.startsWith('```')) {
-        cleanText = cleanText.replace(/^```\s*/, '').replace(/\s*```$/, '');
+      let cleaned = contentText.trim();
+      if (cleaned.startsWith('```')) {
+        cleaned = cleaned.replace(/^```json\s*/, '').replace(/^```/, '').replace(/```$/, '');
       }
-      parsedCV = JSON.parse(cleanText);
+      parsedProfile = JSON.parse(cleaned);
     } catch (parseError) {
-      console.error('Failed to parse CV JSON:', parsedText);
-      return res.status(502).json({ error: 'Failed to parse CV results', raw: parsedText });
+      console.error('Failed to parse CV content JSON:', contentText);
+      return res.status(502).json({ error: 'Failed to parse CV content', raw: contentText });
     }
 
-    console.log('✅ CV parsed successfully:', {
-      name: parsedCV.personalInfo?.name,
-      yearsExperience: parsedCV.yearsExperience,
-      experienceCount: parsedCV.experience?.length || 0,
-      skillCategories: Object.keys(parsedCV.skills || {}).length
-    });
+    console.log('✅ CV content parsed successfully for:', parsedProfile.full_name || 'Unknown');
 
-    return res.json({ parsedCV });
+    return res.json({ profile: parsedProfile });
 
   } catch (error) {
-    console.error('CV parsing error:', error);
-    const message = error instanceof Error ? error.message : 'CV parsing failed';
+    console.error('CV content parsing error:', error);
     return res.status(500).json({
-      error: message,
+      error: error instanceof Error ? error.message : 'CV parsing failed',
       details: error instanceof Error ? error.toString() : String(error)
     });
   }

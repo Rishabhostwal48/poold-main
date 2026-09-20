@@ -1,16 +1,20 @@
 // src/utils/tts.ts
+import { getAccessToken } from '@/lib/backendAuth';
+
 export async function playTTS(text: string) {
   if (typeof window === "undefined") return;
-// https://sxfjoqvwtjsiskqwftln.supabase.co/functions/v1/tts-elevenlabs
   try {
-    // Call our Supabase Edge Function proxy (keeps API key server-side)
+    const token = getAccessToken();
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json"
+    };
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
+    }
+
     const response = await fetch(`${import.meta.env.VITE_BACKEND_URL}/tts-labs`, {
       method: "POST",
-      headers: { 
-        "Content-Type": "application/json",
-        "Authorization": `Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN4ZmpvcXZ3dGpzaXNrcXdmdGxuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTgwMjIxMzcsImV4cCI6MjA3MzU5ODEzN30.-XKr81Op91guPTO604XqAMciSb6zYl30TAsujeGKqW4`,
-        "apikey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN4ZmpvcXZ3dGpzaXNrcXdmdGxuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTgwMjIxMzcsImV4cCI6MjA3MzU5ODEzN30.-XKr81Op91guPTO604XqAMciSb6zYl30TAsujeGKqW4"
-      },
+      headers,
       body: JSON.stringify({
         text,
         // Use a natural-sounding voice

@@ -12,6 +12,7 @@ import type {
   GapAnalysis,
   InterviewSummary
 } from '../types';
+import { apiRequest } from './backendApi';
 
 // API base URL from environment
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api';
@@ -123,9 +124,6 @@ export async function ingestJD(content: string, file?: File): Promise<JDIngestRe
       hasFile: !!file
     });
 
-    // Use OpenAI to analyze job description via Supabase edge function
-    const { supabase } = await import('@/integrations/supabase/client');
-    
     let requestBody;
     
     if (file) {
@@ -147,25 +145,13 @@ export async function ingestJD(content: string, file?: File): Promise<JDIngestRe
       };
     }
     
-    // const { data, error } = await supabase.functions.invoke('analyze-job-description', {
-    //   body: requestBody
-    // });
-let data, error;
-await fetch (`${import.meta.env.VITE_BACKEND_URL}/analyze-job-desc`,{
+    // Use the centralized authenticated API helper so the Cognito access token
+    // is automatically attached as "Authorization: Bearer <token>" and a 401
+    // triggers a single token-refresh retry before failing.
+    const data = await apiRequest<any>('/analyze-job-desc', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(requestBody)
-    }).then((res)=> res.json()).then((resData)=>{
-      data = resData;
-    }).catch((err)=>{
-      error = err;
-})
-    if (error) {
-      console.error('Edge function error:', error);
-      throw new Error(error.message || 'Failed to analyze job description with AI');
-    }
+      body: JSON.stringify(requestBody),
+    });
 
     if (!data?.jobProfile) {
       throw new Error('No job analysis data received from AI');
@@ -399,27 +385,38 @@ function generateMockInterviewSummary(jobProfile: JobProfile): InterviewSummary 
 }
 
 function transformParsedCVToProfile(parsedCV: any): CandidateProfile {
-  // Transform the parsed CV structure to match our CandidateProfile interface
+  if (!parsedCV || typeof parsedCV !== 'object') {
+    throw new Error('CV parser returned an invalid profile');
+  }
+
+  const experience = Array.isArray(parsedCV.experience) ? parsedCV.experience : [];
+  const education = Array.isArray(parsedCV.education) ? parsedCV.education : [];
+  const skills = Array.isArray(parsedCV.skills)
+    ? { general: parsedCV.skills.filter((skill: unknown): skill is string => typeof skill === 'string') }
+    : (parsedCV.skills && typeof parsedCV.skills === 'object' ? parsedCV.skills : {});
+
   return {
     basics: {
-      name: parsedCV.personalInfo?.name || 'Unknown',
-      location: parsedCV.personalInfo?.location || '',
-      years_experience: calculateYearsOfExperience(parsedCV.experience || []),
-      education: parsedCV.education?.map((edu: any) => 
-        `${edu.degree} - ${edu.institution} (${edu.graduationDate})`
+      name: parsedCV.full_name || parsedCV.personalInfo?.name || 'Unknown',
+      location: parsedCV.location || parsedCV.personalInfo?.location || '',
+      years_experience: calculateYearsOfExperience(experience),
+      education: education.map((edu: any) =>
+        `${edu.degree || ''} - ${edu.institution || ''} (${edu.year || edu.graduationDate || ''})`.trim()
       ) || []
     },
-    roles: parsedCV.experience?.map((exp: any) => ({
-      title: exp.title,
-      company: exp.company,
-      start: exp.startDate,
-      end: exp.endDate,
-      achievements: exp.achievements || [],
+    roles: experience.map((exp: any) => ({
+      title: exp.title || '',
+      company: exp.company || '',
+      start: exp.startDate || exp.duration?.split(' - ')[0] || '',
+      end: exp.endDate || exp.duration?.split(' - ')[1] || 'present',
+      achievements: exp.achievements || exp.highlights || [],
       tools: exp.technologies || [],
-      domains: exp.domains || [exp.title] // Fallback to title if no domains
+      domains: exp.domains || [exp.title || 'Professional experience']
     })) || [],
-    skills: parsedCV.skills || {},
-    certs: parsedCV.certifications?.map((cert: any) => cert.name) || [],
+    skills,
+    certs: Array.isArray(parsedCV.certifications)
+      ? parsedCV.certifications.map((cert: any) => typeof cert === 'string' ? cert : cert.name).filter(Boolean)
+      : [],
     highlights: [] // Will be populated by further analysis
   };
 }

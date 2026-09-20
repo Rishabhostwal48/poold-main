@@ -3,8 +3,8 @@
  *
  * Loop 6 — Centralized API endpoints replacing direct frontend Supabase DB access.
  *
- * All endpoints require authentication via the existing dual-mode middleware
- * (Cognito JWT primary, Supabase Auth fallback).
+ * All endpoints require authentication via the authenticate middleware
+ * (Cognito JWT access tokens mapped to PostgreSQL app_users).
  *
  * Security rules enforced here:
  *   - Ownership: user-scoped queries always filter by req.user.id (server-side)

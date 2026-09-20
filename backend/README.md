@@ -1,42 +1,24 @@
 # Sonic Recruiter Pro — Backend
 
-A lightweight Express.js backend migrated from Deno serverless functions. Provides endpoints for CV parsing, job-description analysis, audio transcription, text-to-speech (ElevenLabs), question generation, account deletion, and candidate response analysis. It also exposes a Socket.IO namespace `/interview` that runs an automated interviewer (Maya) which streams audio -> Whisper -> OpenAI and persists interviews to Supabase.
+A lightweight Express.js backend migrated from serverless functions. Provides endpoints for CV parsing, job-description analysis, audio transcription, text-to-speech (ElevenLabs), question generation, account deletion, and candidate response analysis. It also exposes a Socket.IO namespace `/interview` that runs an automated interviewer (Maya) which streams audio -> Whisper -> OpenAI and persists interviews to PostgreSQL.
+
+**Architecture Summary**
+- **Authentication**: Amazon Cognito (with PostgreSQL identity mapping)
+- **Database**: PostgreSQL (Amazon RDS / Aiven / local PostgreSQL pool)
+- **Storage**: Amazon S3 (file uploads and presigned URLs)
+- **API & Authorization**: Express.js with custom role middleware
 
 **Quick overview**
-- HTTP routes: mounted under `/service/*` and available at the top-level paths (see "API routes").
-- Optional realtime interviewer: Socket.IO namespace `/interview` (initialised only if `service/interview-websocket.js` exports `setupWebSocketHandlers`).
+- HTTP routes: mounted under `/service/*` and available at top-level paths.
+- Realtime interviewer: Socket.IO namespace `/interview`.
 
-**Table of contents**
-- Getting started
-- Environment variables
-- Install & run
-- HTTP routes (examples)
-- WebSocket / interview testing (headless)
-- Troubleshooting
-- Notes
-
-**Getting started**
-Prerequisites:
-- Node.js (v18+ recommended)
-- npm
-- (Optional) `ffmpeg` for audio conversions when testing audio streaming
-
-Clone and enter the project:
-
-```
-git clone <repo-url>
-cd sonic-recruiter-pro-backend
-```
-
-Environment: create a `.env` file in the project root with the variables below.
-
-Environment variables (summary)
-- `OPENAI_API_KEY` — OpenAI API key (chat completions & Whisper transcription)
-- `SUPABASE_URL` — Supabase project URL
-- `SUPABASE_SERVICE_ROLE_KEY` — Supabase service role key (used for storage and admin ops)
+**Environment variables (summary)**
+- `OPENAI_API_KEY` — OpenAI API key
 - `ELEVENLABS_API_KEY` — ElevenLabs key for TTS
-- `CV_BUCKET` — Supabase storage bucket used by `parse-cv` (default `cvs`)
-- `PORT` — optional, server port (defaults to `3000`)
+- `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` — PostgreSQL connection
+- `COGNITO_USER_POOL_ID`, `COGNITO_CLIENT_ID`, `COGNITO_REGION` — Amazon Cognito
+- `S3_BUCKET_NAME`, `AWS_REGION` — Amazon S3 storage
+- `PORT` — server port (defaults to `3000`)
 
 Install dependencies
 
@@ -65,7 +47,7 @@ API routes (HTTP)
     ```bash
     curl -X POST -F "file=@/path/to/cv.pdf" http://localhost:3000/parse-cv
     ```
-- `POST /upload-cv` — Upload and store CV file to Supabase storage bucket. Accepts multipart `file` (PDF or DOCX). Returns file path, signed URL, and metadata.
+- `POST /upload-cv` — Upload and store CV file to Amazon S3 storage bucket. Accepts multipart `file` (PDF or DOCX). Returns file path, signed URL, and metadata.
   - Example (curl + form):
     ```bash
     curl -X POST -F "file=@/path/to/resume.pdf" http://localhost:3000/upload-cv
@@ -75,7 +57,7 @@ API routes (HTTP)
 - `POST /transcribe-audio` — Transcribe base64 audio. JSON body: `{ audio: "data:...;base64,<base64>", mimeType: "audio/webm" }`.
 - `POST /tts-labs` — ElevenLabs TTS. JSON body: `{ text: "...", voiceId: "<id>" }`. Returns `audio/mpeg` binary response.
 - `POST /generate-questions` — Generate interview questions from jobDescription/candidateProfile.
-- `POST /delete-user-account` — Admin delete user via Supabase. Include `Authorization: Bearer <access_token>` header.
+- `POST /delete-user-account` — Delete authenticated user account from Cognito and PostgreSQL. Include `Authorization: Bearer <access_token>` header.
 - `POST /analyze-response` — Analyze a candidate's response. JSON body: `{ question: "...", response: "...", context: {...} }`.
 - `POST /validate-answer-duration` — Validate interview answer meets minimum duration (10s) and word count (5+ words). JSON body: `{ answerText: "...", durationSeconds: 15, questionIndex: 0 }`.
   - Example (curl):
@@ -120,7 +102,7 @@ API routes (HTTP)
       -d '{}'
     ```
     Returns: `{ "id": "sess_...", "object": "realtime.session", "model": "gpt-4o-realtime-preview-2024-12-17", "expires_at": 1234567890, "modalities": ["audio", "text"], "voice": "verse", ... }`
-- `POST /save-maya-interview` — Save completed Maya interview session to Supabase `maya_interviews` table. JSON body: `{ session_id: "...", candidate_name: "...", candidate_phone: "...", started_at: "...", ended_at: "...", duration_seconds: 300, questions: [...], responses: [...], transcript: [...] }`.
+- `POST /save-maya-interview` — Save completed Maya interview session to PostgreSQL `maya_interviews` table. JSON body: `{ session_id: "...", candidate_name: "...", candidate_phone: "...", started_at: "...", ended_at: "...", duration_seconds: 300, questions: [...], responses: [...], transcript: [...] }`.
   - Example (curl):
     ```bash
     curl -X POST http://localhost:3000/save-maya-interview \
@@ -179,7 +161,6 @@ ffmpeg -i input.wav -c:a libopus -b:a 64k output.webm
 Troubleshooting
 - Port in use: if you see `EADDRINUSE`, either kill the process using the port (`lsof -i :3000`) or run with `PORT=3001 node index.js`.
 - OpenAI errors: ensure `OPENAI_API_KEY` is present. The server logs upstream responses for debugging.
-- Supabase issues: ensure `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are correct.
 - CORS: routes set permissive CORS headers but your browser environment or hosting config might require more restrictions—adjust headers in each route as needed.
 
 Developer notes
