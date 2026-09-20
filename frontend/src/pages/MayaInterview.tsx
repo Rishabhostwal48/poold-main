@@ -84,8 +84,8 @@ export default function MayaInterview() {
   const [error, setError] = useState("");
   const [elapsedTime, setElapsedTime] = useState(0);
   const [isComplete, setIsComplete] = useState(false);
-  const [transportMode, setTransportMode] = useState<'realtime' | 'websocket'>('realtime');
-  const [useRealtimePrimary, setUseRealtimePrimary] = useState(true);
+  const [transportMode, setTransportMode] = useState<'realtime' | 'websocket'>('websocket');
+  const [useRealtimePrimary, setUseRealtimePrimary] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
 
   const mediaStreamRef = useRef<MediaStream | null>(null);
@@ -808,21 +808,6 @@ const allowResponseRef = useRef<boolean>(false); // Gate to control when respons
         questions_count: questions.length,
         responses_count: responses.length,
       });
-
-      const { supabase } = await import("@/integrations/supabase/client");
-      // const { error } = await supabase.functions.invoke("save-maya-interview", {
-      //   body: {
-      //     session_id: sessionIdRef.current,
-      //     candidate_name: candidateInfo?.name,
-      //     candidate_phone: candidateInfo?.phone,
-      //     started_at: new Date(startTimeRef.current).toISOString(),
-      //     ended_at: new Date().toISOString(),
-      //     duration_seconds: durationSeconds,
-      //     questions,
-      //     responses,
-      //     transcript,
-      //   },
-      // });
 
       let error;
 

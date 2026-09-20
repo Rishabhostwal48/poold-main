@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { backendApi } from "@/lib/backendApi";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "sonner";
@@ -22,32 +22,26 @@ export default function AdminDashboard() {
 
   const fetchAdminData = async () => {
     try {
-      // Fetch statistics
-      const { data: statsData, error: statsError } = await supabase
-        .from("admin_statistics")
-        .select("*")
-        .order("date", { ascending: false })
-        .limit(30);
+      const [statsRes, userCountRes] = await Promise.all([
+        backendApi.getAdminStatistics(),
+        backendApi.getAdminUserCount(),
+      ]);
 
-      if (statsError) throw statsError;
+      const statsData = statsRes.data || [];
+      const usersCount = userCountRes.count || 0;
 
       // Calculate totals
-      const totalCost = statsData?.reduce((sum, stat) => sum + Number(stat.estimated_cost_usd), 0) || 0;
-      const totalApiCalls = statsData?.reduce((sum, stat) => sum + stat.ai_api_calls, 0) || 0;
-      const avgProcessingTime = statsData?.length 
-        ? statsData.reduce((sum, stat) => sum + stat.processing_time_seconds, 0) / statsData.length 
+      const totalCost = statsData.reduce((sum, stat) => sum + Number(stat.estimated_cost_usd || 0), 0);
+      const totalApiCalls = statsData.reduce((sum, stat) => sum + (stat.ai_api_calls || 0), 0);
+      const avgProcessingTime = statsData.length 
+        ? statsData.reduce((sum, stat) => sum + (stat.processing_time_seconds || 0), 0) / statsData.length 
         : 0;
 
-      // Get total users count
-      const { count: usersCount } = await supabase
-        .from("profiles")
-        .select("*", { count: "exact", head: true });
-
-      setStatistics(statsData || []);
+      setStatistics(statsData);
       setTotalStats({
         totalCost,
         totalApiCalls,
-        totalUsers: usersCount || 0,
+        totalUsers: usersCount,
         avgProcessingTime,
       });
     } catch (error: any) {
@@ -62,14 +56,19 @@ export default function AdminDashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-background p-8">
-      <div className="flex justify-between items-center mb-8">
-        <h1 className="text-4xl font-bold">Admin Dashboard</h1>
+    <div className="dashboard-page">
+      <div className="dashboard-content">
+      <div className="dashboard-header flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-end">
+        <div>
+          <div className="dashboard-kicker">System // Telemetry monitor</div>
+          <h1 className="dashboard-title">Admin dashboard</h1>
+          <p className="text-muted-foreground">Service health, usage volume, and AI processing cost.</p>
+        </div>
         <UserMenu />
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-        <Card>
+        <Card className="dashboard-card dashboard-stat">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total Cost</CardTitle>
             <DollarSign className="h-4 w-4 text-muted-foreground" />
@@ -80,7 +79,7 @@ export default function AdminDashboard() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="dashboard-card dashboard-stat">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">API Calls</CardTitle>
             <Activity className="h-4 w-4 text-muted-foreground" />
@@ -91,7 +90,7 @@ export default function AdminDashboard() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="dashboard-card dashboard-stat">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total Users</CardTitle>
             <Users className="h-4 w-4 text-muted-foreground" />
@@ -102,7 +101,7 @@ export default function AdminDashboard() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="dashboard-card dashboard-stat">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Avg Processing Time</CardTitle>
             <TrendingUp className="h-4 w-4 text-muted-foreground" />
@@ -114,7 +113,7 @@ export default function AdminDashboard() {
         </Card>
       </div>
 
-      <Card>
+      <Card className="dashboard-card">
         <CardHeader>
           <CardTitle>Daily Statistics</CardTitle>
           <CardDescription>Processing costs and usage over time</CardDescription>
@@ -148,6 +147,7 @@ export default function AdminDashboard() {
           </Table>
         </CardContent>
       </Card>
+      </div>
     </div>
   );
 }

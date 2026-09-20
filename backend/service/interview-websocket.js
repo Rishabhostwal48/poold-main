@@ -1,18 +1,32 @@
 // interview-websocket.js — Express router with socket.io for WebSocket support
 // WebSocket server for Maya (audio-only)
 // Streams PCM16 frames from client, wraps into WAV, sends to OpenAI Whisper STT,
-// generates next Maya question via OpenAI, and persists to Supabase.
+// generates next Maya question via OpenAI, and persists to PostgreSQL.
 const express = require('express');
 const router = express.Router();
-const { createClient } = require('@supabase/supabase-js');
+const db = require('../db');
 const dotenv = require('dotenv');
 dotenv.config();
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-supabase-authorization'
-};
+const cognito = require('../auth/cognito');
+
+const allowedOrigins = new Set([
+  process.env.FRONTEND_ORIGIN,
+  'http://localhost:8080',
+  'http://127.0.0.1:8080',
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+].filter(Boolean));
+
+function applyCors(req, res) {
+  const origin = req.headers.origin;
+  if (origin && allowedOrigins.has(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+  }
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'authorization, x-client-info, apikey, content-type');
+}
 
 // ---- Helpers ----
 function pcm16ToWav(pcm, sr = 16000, channels = 1) {
@@ -47,6 +61,10 @@ async function logSttFailure(resp) {
   try {
     body = await resp.text();
   } catch  {}
+  if (resp.status === 400 && (body.includes('invalid_media_file') || body.includes('could not process file'))) {
+    console.warn('⚠️ STT skipped unparseable audio fragment (400 invalid_media_file)');
+    return;
+  }
   console.error('❌ STT failed', {
     status: resp.status,
     statusText: resp.statusText,
@@ -62,13 +80,16 @@ function writeJSON(socket, obj) {
 }
 
 // ---- Server ----
+
+
+// ---- Server ----
 router.get('/', (req, res) => {
-  res.set(corsHeaders);
+  applyCors(req, res);
   res.json({ status: 'WebSocket endpoint ready. Connect via socket.io' });
 });
 
 router.options('/', (req, res) => {
-  res.set(corsHeaders);
+  applyCors(req, res);
   res.sendStatus(200);
 });
 
@@ -76,7 +97,68 @@ router.options('/', (req, res) => {
 function setupWebSocketHandlers(io) {
   const nsp = io.of('/interview');
 
+  nsp.use(async (socket, next) => {
+    try {
+      const authHeader = socket.handshake.auth?.token || socket.handshake.headers?.authorization;
+      if (!authHeader) {
+        // Maya is available from the public /maya route. Keep authenticated
+        // sessions supported, but allow anonymous interview sessions too.
+        socket.user = { id: null, email: null, anonymous: true };
+        return next();
+      }
+
+      const token = authHeader.replace(/^Bearer\s+/i, '');
+      if (!token) {
+        return next(new Error('Authentication error: Empty token'));
+      }
+
+      let authenticatedUser = null;
+
+      try {
+        const decoded = await cognito.verifyToken(token);
+        if (decoded && decoded.sub) {
+          if (decoded.token_use !== 'access') {
+            return next(new Error('Authentication error: Token must be an access token'));
+          }
+
+          const { rows } = await db.query(
+            'SELECT id, email FROM app_users WHERE cognito_sub = $1',
+            [decoded.sub]
+          );
+
+          if (rows.length > 0) {
+            authenticatedUser = {
+              id: rows[0].id,
+              email: rows[0].email,
+            };
+          } else {
+            return next(new Error('Authentication error: User mapping not found'));
+          }
+        }
+      } catch (cognitoErr) {
+        if (cognitoErr.message && cognitoErr.message.includes('token_use')) {
+          return next(cognitoErr);
+        }
+        return next(new Error('Authentication error: Invalid authentication token'));
+      }
+
+      if (!authenticatedUser) {
+        return next(new Error('Authentication error: Invalid authentication token'));
+      }
+
+      socket.user = authenticatedUser;
+      return next();
+    } catch (err) {
+      return next(new Error('Authentication error: ' + err.message));
+    }
+  });
+
   nsp.on('connection', async (socket) => {
+    if (!socket.user) {
+      socket.disconnect(true);
+      return;
+    }
+
     // ---- State ----
     const sessionId = require('crypto').randomUUID();
     const startTime = Date.now();
@@ -111,10 +193,13 @@ function setupWebSocketHandlers(io) {
       return Math.floor(samples / sampleRate * 1000);
     }
 
-    // ---- Supabase ----
-    const supabaseUrl = process.env.SUPABASE_URL;
-    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    const supabase = createClient(supabaseUrl, supabaseKey);
+    // ---- Database (pg pool) ----
+    // Maya interview data is persisted via the centralized PostgreSQL pool.
+    // No authentication is performed for Maya interview saves (public endpoint).
+    // DEFERRED SECURITY REVIEW: Maya interviews are created without user
+    // authentication. This matches the existing Supabase behavior (RLS policy
+    // allowed inserts from any authenticated or anon caller). Evaluate whether
+    // authentication should be required in a future security review loop.
 
     // ---- Maya System Prompt ----
     function getMayaSystemPrompt() {
@@ -198,14 +283,16 @@ ${currentFollowUpCount < MAX_FOLLOW_UPS_PER_QUESTION ? `You can ask ${MAX_FOLLOW
 — Be kind, be concise, and never talk over the candidate—or over yourself. 💛`;
     }
 
-    // ---- OpenAI (question generation) ----
+    // ---- Groq LLM (Maya question generation) ----
     async function generateMayaResponse(userMessage) {
       try {
-        const openAIApiKey = process.env.OPENAI_API_KEY;
-        if (!openAIApiKey) {
-          console.error('❌ OPENAI_API_KEY not configured');
+        const groqApiKey = process.env.GROQ_API_KEY;
+        if (!groqApiKey) {
+          console.error('❌ GROQ_API_KEY not configured');
           return null;
         }
+
+        const targetModel = process.env.GROQ_MODEL_FAST || 'openai/gpt-oss-20b';
 
         if (userMessage && userMessage.trim()) {
           conversationHistory.push({
@@ -214,14 +301,14 @@ ${currentFollowUpCount < MAX_FOLLOW_UPS_PER_QUESTION ? `You can ask ${MAX_FOLLOW
           });
         }
 
-        const resp = await fetch('https://api.openai.com/v1/chat/completions', {
+        const resp = await fetch('https://api.groq.com/openai/v1/chat/completions', {
           method: 'POST',
           headers: {
-            Authorization: `Bearer ${openAIApiKey}`,
+            Authorization: `Bearer ${groqApiKey}`,
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({
-            model: 'gpt-4o-mini',
+            model: targetModel,
             messages: [
               {
                 role: 'system',
@@ -235,15 +322,34 @@ ${currentFollowUpCount < MAX_FOLLOW_UPS_PER_QUESTION ? `You can ask ${MAX_FOLLOW
         });
 
         if (!resp.ok) {
-          console.error('❌ OpenAI error:', resp.status, await resp.text());
+          console.error('❌ Groq API error:', resp.status, await resp.text());
           return null;
         }
 
         const data = await resp.json();
-        console.log('🧠 Maya response generated:', data);
+        console.log('🧠 Maya Groq response generated:', data);
         const mayaResponse = data?.choices?.[0]?.message?.content ?? '';
-        const match = mayaResponse.match(/(.*?)\[\[END_QUESTION\]\]/s);
-        const questionText = (match ? match[1] : mayaResponse).trim();
+        let questionText = mayaResponse.trim();
+        try {
+          const parsed = JSON.parse(mayaResponse);
+          if (parsed && typeof parsed.text === 'string' && parsed.text.trim()) {
+            questionText = parsed.text.trim();
+          }
+        } catch {
+          const match = mayaResponse.match(/(.*?)\[\[END_QUESTION\]\]/s);
+          const raw = match ? match[1] : mayaResponse;
+          questionText = raw.replace(/^\{.*?"text":\s*"([^"]+)".*?\}$/s, '$1').trim();
+        }
+
+        if (!questionText) {
+          const fallbackQuestions = [
+            "Tell me about yourself and your recent experience.",
+            "Which recent project best shows your impact?",
+            "What technical skill would you most like to use in this role?",
+          ];
+          questionText = fallbackQuestions[Math.min(mainQuestionCount, fallbackQuestions.length - 1)];
+          console.warn('Maya returned empty text; using fallback question:', questionText);
+        }
 
         conversationHistory.push({
           role: 'assistant',
@@ -288,31 +394,78 @@ ${currentFollowUpCount < MAX_FOLLOW_UPS_PER_QUESTION ? `You can ask ${MAX_FOLLOW
       }
     }
 
-    // ---- STT processing using OpenAI Whisper ----
+    async function transcribeAudio(file, language) {
+      const providers = [
+        process.env.GROQ_API_KEY && {
+          name: 'Groq',
+          url: 'https://api.groq.com/openai/v1/audio/transcriptions',
+          key: process.env.GROQ_API_KEY,
+          model: process.env.GROQ_MODEL_STT || 'whisper-large-v3-turbo'
+        },
+        process.env.OPENAI_API_KEY && {
+          name: 'OpenAI',
+          url: 'https://api.openai.com/v1/audio/transcriptions',
+          key: process.env.OPENAI_API_KEY,
+          model: 'whisper-1'
+        }
+      ].filter(Boolean);
+
+      let lastError;
+      for (const provider of providers) {
+        const form = new FormData();
+        form.append('file', new Blob([file.data], { type: file.type }), file.name);
+        form.append('model', provider.model);
+        if (language) form.append('language', language);
+
+        try {
+          const response = await fetch(provider.url, {
+            method: 'POST',
+            headers: { Authorization: 'Bearer ' + provider.key },
+            body: form
+          });
+          if (response.ok) {
+            console.log(`✅ ${provider.name} transcription succeeded`);
+            return response.json();
+          }
+          lastError = new Error(`${provider.name} transcription failed (${response.status})`);
+          await logSttFailure(response);
+        } catch (error) {
+          lastError = error;
+          console.error(`❌ ${provider.name} transcription request failed:`, error);
+        }
+      }
+      throw lastError || new Error('No transcription provider configured');
+    }
+
+    // ---- STT processing using Groq Whisper ----
+    let headerChunk = null;
+
     async function processAccumulated(force = false) {
       if (processing || accumulatedChunks.length === 0) return;
       const currentCodec = audioCodec;
 
-      if (!force) {
-        if (currentCodec === 'pcm16') {
-          const ms = bufferedMs();
-          if (ms < MIN_WINDOW_MS) return;
-        } else {
-          if (accumulatedBytes < MIN_BYTES_OPUS) return;
-        }
+      let merged = Buffer.concat(accumulatedChunks);
+
+      // Require at least ~3KB of data before sending unless forced
+      if (!force && merged.length < 3000) return;
+
+      if (merged.length < 500) {
+        accumulatedChunks = [];
+        accumulatedBytes = 0;
+        return;
       }
 
       processing = true;
 
       try {
-        const openAIApiKey = process.env.OPENAI_API_KEY;
-        if (!openAIApiKey) {
-          console.error('❌ OPENAI_API_KEY not configured');
-          processing = false;
-          return;
+        // Prepend container header if WebM Opus to ensure valid media file structure
+        if (currentCodec === 'webm-opus' && headerChunk && headerChunk.length > 0) {
+          const hasEbmlHeader = merged.length >= 4 && merged[0] === 0x1A && merged[1] === 0x45 && merged[2] === 0xDF && merged[3] === 0xA3;
+          if (!hasEbmlHeader) {
+            merged = Buffer.concat([headerChunk, merged]);
+          }
         }
 
-        const merged = Buffer.concat(accumulatedChunks);
         accumulatedChunks = [];
         accumulatedBytes = 0;
 
@@ -331,35 +484,8 @@ ${currentFollowUpCount < MAX_FOLLOW_UPS_PER_QUESTION ? `You can ask ${MAX_FOLLOW
           file = { data: merged, name, type };
         }
 
-        const form = new FormData();
-        const blob = new Blob([file.data], { type: file.type });
-        form.append('file', blob, file.name);
-        form.append('model', 'whisper-1');
-        if (language) form.append('language', language);
+        const result = await transcribeAudio(file, language);
 
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 60_000);
-
-        const resp = await fetch('https://api.openai.com/v1/audio/transcriptions', {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${openAIApiKey}`
-          },
-          body: form,
-          signal: controller.signal
-        }).finally(() => clearTimeout(timeout));
-
-        if (!resp.ok) {
-          await logSttFailure(resp);
-          writeJSON(socket, {
-            type: 'error',
-            message: 'Transcription failed'
-          });
-          processing = false;
-          return;
-        }
-
-        const result = await resp.json();
         const text = (result?.text || '').trim();
 
         if (text) {
@@ -428,27 +554,53 @@ ${currentFollowUpCount < MAX_FOLLOW_UPS_PER_QUESTION ? `You can ask ${MAX_FOLLOW
     async function saveInterviewData() {
       try {
         const durationSeconds = Math.floor((Date.now() - startTime) / 1000);
-        await supabase.from('maya_interviews').insert({
-          session_id: sessionId,
-          candidate_name: candidateName || null,
-          candidate_phone: candidatePhone || null,
-          started_at: new Date(startTime).toISOString(),
-          ended_at: new Date().toISOString(),
-          duration_seconds: durationSeconds,
-          questions: conversationHistory
+        const questionsJson = JSON.stringify(
+          conversationHistory
             .filter((m) => m.role === 'assistant')
             .map((m) => ({
               question: m.content.replace(/\[\[END_QUESTION\]\]/g, '').trim(),
               timestamp: new Date().toISOString()
-            })),
-          responses: conversationHistory
+            }))
+        );
+        const responsesJson = JSON.stringify(
+          conversationHistory
             .filter((m) => m.role === 'user')
             .map((m) => ({
               response: m.content,
               timestamp: new Date().toISOString()
-            })),
-          transcript: interviewTranscript
-        });
+            }))
+        );
+        const transcriptJson = JSON.stringify(interviewTranscript);
+
+        await db.query(
+          `INSERT INTO maya_interviews
+             (session_id, user_email, candidate_name, candidate_phone,
+              started_at, ended_at, duration_seconds,
+              questions, responses, transcript)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+           ON CONFLICT (session_id) DO UPDATE SET
+             user_email = EXCLUDED.user_email,
+             candidate_name = COALESCE(EXCLUDED.candidate_name, maya_interviews.candidate_name),
+             candidate_phone = COALESCE(EXCLUDED.candidate_phone, maya_interviews.candidate_phone),
+             ended_at = EXCLUDED.ended_at,
+             duration_seconds = EXCLUDED.duration_seconds,
+             questions = EXCLUDED.questions,
+             responses = EXCLUDED.responses,
+             transcript = EXCLUDED.transcript,
+             updated_at = now()`,
+          [
+            sessionId,
+            socket.user ? socket.user.email : null,
+            candidateName || null,
+            candidatePhone || null,
+            new Date(startTime).toISOString(),
+            new Date().toISOString(),
+            durationSeconds,
+            questionsJson,
+            responsesJson,
+            transcriptJson
+          ]
+        );
         console.log('✅ Interview data saved', {
           sessionId,
           candidateName,
@@ -469,8 +621,8 @@ ${currentFollowUpCount < MAX_FOLLOW_UPS_PER_QUESTION ? `You can ask ${MAX_FOLLOW
       } catch  {}
     }, 30_000);
 
-    // ---- Socket.io Events ----
-    socket.on('connect', async () => {
+    // Generate the greeting after the namespace connection is established.
+    (async () => {
       console.log('📞 Socket.io connected', { sessionId });
 
       const first = await generateMayaResponse();
@@ -491,11 +643,20 @@ ${currentFollowUpCount < MAX_FOLLOW_UPS_PER_QUESTION ? `You can ask ${MAX_FOLLOW
           data: { question: fallback, isGreeting: true }
         });
       }
+    })().catch((err) => {
+      console.error('❌ Error generating initial interview question:', err);
+      writeJSON(socket, {
+        type: 'error',
+        message: 'Unable to start the interview'
+      });
     });
 
     socket.on('audio', async (data) => {
       try {
         if (Buffer.isBuffer(data)) {
+          if (!headerChunk && data.byteLength > 0) {
+            headerChunk = data;
+          }
           accumulatedChunks.push(data);
           accumulatedBytes += data.byteLength;
 
@@ -532,6 +693,21 @@ ${currentFollowUpCount < MAX_FOLLOW_UPS_PER_QUESTION ? `You can ask ${MAX_FOLLOW
         if (typeof msg.language === 'string') language = msg.language;
         if (typeof msg.candidateName === 'string') candidateName = msg.candidateName;
         if (typeof msg.candidatePhone === 'string') candidatePhone = msg.candidatePhone;
+        if (typeof msg.session_id === 'string' && msg.session_id) {
+          db.query(
+            'SELECT session_id, user_email FROM maya_interviews WHERE session_id = $1',
+            [msg.session_id]
+          ).then(({ rows: existingRows }) => {
+            if (existingRows.length > 0 && existingRows[0].user_email && existingRows[0].user_email !== socket.user.email) {
+              writeJSON(socket, { type: 'error', message: 'Forbidden: Unauthorized access to interview session' });
+              socket.disconnect(true);
+            } else {
+              sessionId = msg.session_id;
+            }
+          }).catch(err => {
+            console.error('Error checking session ownership:', err);
+          });
+        }
 
         console.log('📝 Candidate info received:', {
           candidateName,

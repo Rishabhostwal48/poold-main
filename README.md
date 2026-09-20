@@ -72,30 +72,42 @@ npx nodemon index.js    # or `PORT=3001 node index.js` to run on custom port
 
 ---
 
-## Environment Variables (names only — do NOT commit values)
+## Architecture & Environment Variables
+
+Current Production Architecture:
+- **Amazon Cognito**: User authentication (access token in memory, refresh token in HttpOnly cookie)
+- **PostgreSQL**: Centralized application database
+- **Amazon S3**: File storage (presigned URLs and bucket storage)
+- **Express Backend**: API, WebSocket namespace `/interview`, and role authorization
+- *(Transitional)*: Backend Supabase Auth fallback retained temporarily for legacy-user password migration.
 
 Frontend (.env) — place in `frontend/.env`:
 
 ```
-VITE_SUPABASE_PROJECT_ID
-VITE_SUPABASE_PUBLISHABLE_KEY
-VITE_SUPABASE_URL
-VITE_SUPABASE_EDGE_URL
-VITE_SUPABASE_ANON_KEY
-ELEVENLABS_API_KEY
-VITE_BACKEND_URL         # optional - only if using a local backend proxy
-VITE_WEBSOCKET_URL       # optional - fallback transport
+VITE_BACKEND_URL         # Express API server URL (e.g. http://localhost:3000)
+VITE_API_BASE_URL        # API base path (e.g. http://localhost:3000/api)
+VITE_WEBSOCKET_URL       # WebSocket URL (e.g. ws://localhost:3000/interview)
+ELEVENLABS_API_KEY       # ElevenLabs API key
 ```
 
 Backend (.env) — place in `backend/.env`:
 
 ```
 OPENAI_API_KEY
-SUPABASE_URL
-SUPABASE_SERVICE_ROLE_KEY
 ELEVENLABS_API_KEY
-CV_BUCKET                # optional, default: cvs
-PORT                     # optional, defaults to 3000
+DB_HOST
+DB_PORT
+DB_NAME
+DB_USER
+DB_PASSWORD
+COGNITO_USER_POOL_ID
+COGNITO_CLIENT_ID
+COGNITO_REGION
+S3_BUCKET_NAME
+AWS_REGION
+SUPABASE_URL             # Transitional legacy auth fallback
+SUPABASE_SERVICE_ROLE_KEY # Transitional legacy auth fallback
+PORT
 ```
 
 ---
@@ -673,4 +685,4 @@ For questions or feedback:
 
 **Built with ❤️ for better hiring**
 
-Last Updated: 2025
+Last Updated: 2026

@@ -1,16 +1,32 @@
 const express = require('express');
+require('dotenv').config();
 const app = express();
 const http = require('http');
 const socketIo = require('socket.io');
 const cors = require('cors');
 const port = process.env.PORT || 3000;
 
-// CORS middleware - allow all origins
+const allowedOrigins = new Set([
+  process.env.FRONTEND_ORIGIN,
+  'http://localhost:8080',
+  'http://127.0.0.1:8080',
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+].filter(Boolean));
+
 app.use(cors({
-  origin: '*',
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.has(origin)) return callback(null, true);
+    return callback(new Error('Origin is not allowed by CORS'));
+  },
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'x-client-info', 'apikey'],
-  credentials: false
+  allowedHeaders: [
+    'Content-Type',
+    'Authorization',
+    'x-client-info',
+    'apikey'
+  ],
+  credentials: true
 }));
 
 // Middleware to parse JSON bodies (increased limit for large payloads)
@@ -30,6 +46,9 @@ app.get('/', (req, res) => {
   res.send('Hello World!');
 });
 app.use('/auth', require('./service/auth'));
+app.use('/api/job-postings', require('./service/job-postings'));
+app.use('/api', require('./service/api'));
+app.use('/job-postings', require('./service/job-postings'));
 app.use('/parse-cv', require('./service/parse-cv'));   //
 app.use('/upload-cv', require('./service/upload-cv'));//
 app.use('/analyze-job-desc', require('./service/analyze-job-desc'));//
@@ -41,7 +60,6 @@ app.use('/analyze-response', require('./service/analyze-response'));//
 app.use('/validate-answer-duration', require('./service/validate-answer-duration'));
 app.use('/generate-summary', require('./service/generate-summary'));//
 app.use('/parse-cv-content', require('./service/parse-cv-content'));//
-app.use('/realtime-session', require('./service/realtime-session'));//
 app.use('/save-maya-interview', require('./service/save-maya-interview'));//
 // Require the interview module once and mount its router
 let interviewModule;
@@ -62,7 +80,7 @@ if (interviewModule && typeof interviewModule.setupWebSocketHandlers === 'functi
   const server = http.createServer(app);
   const io = socketIo(server, {
     cors: {
-      origin: '*',
+      origin: Array.from(allowedOrigins),
       methods: ['GET', 'POST'],
       allowedHeaders: ['Content-Type', 'Authorization']
     }

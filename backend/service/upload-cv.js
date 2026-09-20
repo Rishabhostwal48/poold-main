@@ -2,42 +2,40 @@ const express = require('express');
 const router = express.Router();
 const multer = require('multer');
 const dotenv = require('dotenv');
-const { createClient } = require('@supabase/supabase-js');
 const { v4: uuidv4 } = require('uuid');
+const s3Storage = require('../storage/s3');
+const { authenticate } = require('../middleware/authenticate');
 
 dotenv.config();
+
+const allowedOrigins = new Set([
+  process.env.FRONTEND_ORIGIN,
+  'http://localhost:8080',
+  'http://127.0.0.1:8080',
+].filter(Boolean));
+
+function applyCors(req, res) {
+  const origin = req.headers.origin;
+  if (origin && allowedOrigins.has(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+  }
+  res.setHeader('Access-Control-Allow-Methods', 'POST,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type, x-client-info, apikey');
+}
 
 // Memory storage for multipart files
 const upload = multer({ storage: multer.memoryStorage() });
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
-
 router.options('/', (req, res) => {
-  res.set(corsHeaders);
+  applyCors(req, res);
   res.sendStatus(200);
 });
 
-router.post('/', upload.single('file'), async (req, res) => {
-  res.set(corsHeaders);
+router.post('/', authenticate, upload.single('file'), async (req, res) => {
+  applyCors(req, res);
 
   try {
-    const SUPABASE_URL = process.env.SUPABASE_URL;
-    const SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    const BUCKET = process.env.CV_BUCKET || 'cvs';
-
-    if (!SUPABASE_URL || !SERVICE_ROLE) {
-      return res.status(500).json({
-        error: 'Supabase configuration missing (SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY required)',
-      });
-    }
-
-    const supabase = createClient(SUPABASE_URL, SERVICE_ROLE, {
-      auth: { persistSession: false },
-    });
-
     if (!req.file) {
       return res.status(400).json({ error: "Missing 'file' field" });
     }
@@ -58,37 +56,31 @@ router.post('/', upload.single('file'), async (req, res) => {
     const ext = file.originalname?.split('.').pop()?.toLowerCase() || 'pdf';
     const objectPath = `uploads/${uuidv4()}.${ext}`;
 
-    console.log(`📤 Uploading file: ${file.originalname} (${file.size} bytes) to ${objectPath}`);
+    console.log(`📤 Uploading file to S3: ${file.originalname} (${file.size} bytes) to ${objectPath}`);
 
-    // Upload to Supabase Storage
-    const { error: uploadErr } = await supabase.storage
-      .from(BUCKET)
-      .upload(objectPath, file.buffer, {
-        contentType,
-        upsert: true,
-      });
-
-    if (uploadErr) {
-      console.error('Upload error:', uploadErr);
+    // Upload to Amazon S3
+    try {
+      await s3Storage.uploadObject(objectPath, file.buffer, contentType);
+    } catch (uploadErr) {
+      console.error('S3 upload error:', uploadErr);
       return res.status(400).json({ error: 'Failed to upload file' });
     }
 
-    // Create signed URL for accessing the file (1 hour expiry)
-    const { data: signed, error: signErr } = await supabase.storage
-      .from(BUCKET)
-      .createSignedUrl(objectPath, 60 * 60);
-
-    if (signErr) {
-      console.error('Signed URL error:', signErr);
+    // Create presigned download URL for accessing the file (1 hour expiry)
+    let signedUrl;
+    try {
+      signedUrl = await s3Storage.createPresignedDownloadUrl(objectPath, 60 * 60);
+    } catch (signErr) {
+      console.error('Presigned URL error:', signErr);
       return res.status(500).json({ error: 'Failed to create signed URL' });
     }
 
-    console.log(`✅ File uploaded successfully: ${objectPath}`);
+    console.log(`✅ File uploaded successfully to S3: ${objectPath}`);
 
     return res.json({
       ok: true,
       file_path: objectPath,
-      url: signed.signedUrl,
+      url: signedUrl,
       file_name: file.originalname,
       file_size: file.size,
       content_type: contentType,

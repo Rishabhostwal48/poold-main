@@ -1,31 +1,40 @@
 const express = require('express');
 const router = express.Router();
 const dotenv = require('dotenv');
-dotenv.config();
-
-const { createClient } = require('@supabase/supabase-js');
 const multer = require('multer');
 const { randomUUID } = require('crypto');
+const s3Storage = require('../storage/s3');
+const { authenticate } = require('../middleware/authenticate');
 
-const SUPABASE_URL = process.env.SUPABASE_URL;
-const SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE_KEY; // service key
-const BUCKET = process.env.CV_BUCKET || 'cvs';
+dotenv.config();
 
-const supabase = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
+const allowedOrigins = new Set([
+  process.env.FRONTEND_ORIGIN,
+  'http://localhost:8080',
+  'http://127.0.0.1:8080',
+].filter(Boolean));
+
+function applyCors(req, res) {
+  const origin = req.headers.origin;
+  if (origin && allowedOrigins.has(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+  }
+  res.setHeader('Access-Control-Allow-Methods', 'POST,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type, x-client-info, apikey');
+}
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 
-// CORS preflight for this route (if app-level CORS isn't configured)
+// CORS preflight for this route
 router.options('/', (req, res) => {
-  res.set({
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'POST,OPTIONS',
-    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  });
+  applyCors(req, res);
   res.sendStatus(200);
 });
 
-router.post('/', upload.single('file'), async (req, res) => {
+router.post('/', authenticate, upload.single('file'), async (req, res) => {
+  applyCors(req, res);
+
   try {
     const file = req.file;
     if (!file) return res.status(400).json({ error: "Missing 'file' field" });
@@ -38,21 +47,24 @@ router.post('/', upload.single('file'), async (req, res) => {
     const bytes = file.buffer;
     const objectPath = `uploads/${randomUUID()}.pdf`;
 
-    const { error: uploadErr } = await supabase.storage
-      .from(BUCKET)
-      .upload(objectPath, bytes, { contentType: 'application/pdf', upsert: true });
-
-    if (uploadErr) {
+    // Upload file to Amazon S3
+    try {
+      await s3Storage.uploadObject(objectPath, bytes, 'application/pdf');
+    } catch (uploadErr) {
+      console.error('S3 upload error:', uploadErr);
       return res.status(400).json({ error: `Storage upload failed: ${uploadErr.message}` });
     }
 
-    const { data: signed, error: signErr } = await supabase.storage
-      .from(BUCKET)
-      .createSignedUrl(objectPath, 600);
+    // Generate presigned URL (10 minutes / 600 seconds)
+    let signedUrl;
+    try {
+      signedUrl = await s3Storage.createPresignedDownloadUrl(objectPath, 600);
+    } catch (signErr) {
+      console.error('Presigned URL error:', signErr);
+      return res.status(500).json({ error: `Signed URL failed: ${signErr.message}` });
+    }
 
-    if (signErr) return res.status(500).json({ error: `Signed URL failed: ${signErr.message}` });
-
-    return res.json({ ok: true, file_path: objectPath, url: signed?.signedUrl });
+    return res.json({ ok: true, file_path: objectPath, url: signedUrl });
   } catch (e) {
     return res.status(500).json({ error: `Unhandled: ${e?.message ?? String(e)}` });
   }

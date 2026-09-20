@@ -15,6 +15,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useUserRole } from '@/hooks/useUserRole';
 import pooldLogo from '@/assets/poold_logo.svg';
 import { UserMenu } from '@/components/UserMenu';
+import { ThemeToggle } from '@/components/ThemeToggle';
 
 export default function Landing() {
   const navigate = useNavigate();
@@ -97,9 +98,9 @@ export default function Landing() {
   ];
   
   return (
-    <div className="min-h-screen bg-gradient-subtle">
+    <div className="landing-page min-h-screen bg-gradient-subtle">
       {/* Header with Logo / Nav */}
-      <header className="border-b border-border/40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+      <header className="landing-header border-b border-border/40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <div className="container mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
@@ -156,7 +157,8 @@ export default function Landing() {
               )}
             </div>
 
-            <div>
+            <div className="flex items-center gap-2">
+              <ThemeToggle />
               {!user ? (
                 <Button variant="outline" onClick={() => navigate('/auth')}>
                   <LogIn className="w-4 h-4 mr-2" />
@@ -174,7 +176,12 @@ export default function Landing() {
       <section id="hero" className="relative overflow-hidden">
         <div className="container mx-auto px-6 py-16">
           <div className="grid lg:grid-cols-2 gap-8 items-center">
-            <div className="space-y-6">
+            <div className="landing-hero-copy space-y-6">
+              <div className="landing-command-line">
+                <span className="landing-pulse" />
+                Signal online
+                <span className="landing-cursor" aria-hidden="true" />
+              </div>
               <h1 className="text-4xl md:text-5xl font-bold leading-tight">
                 Get hired for what you can do.
                 <br />
@@ -223,12 +230,12 @@ export default function Landing() {
             </div>
 
             {/* Hero UI mock (right side) */}
-            <div className="relative">
-              <Card className="shadow-strong">
+            <div className="landing-hero-visual relative">
+              <Card className="glass-surface shadow-strong">
                 <CardContent className="p-6">
                   <div className="flex items-center justify-between">
                     <div>
-                      <div className="font-semibold">Skills interview in progress</div>
+                      <div className="flex items-center gap-2 font-semibold"><span className="landing-pulse" />Skills interview in progress</div>
                       <div className="text-sm text-muted-foreground">Alex Morgan</div>
                       <div className="text-xs text-muted-foreground">Product Analyst, London</div>
                     </div>
@@ -281,7 +288,7 @@ export default function Landing() {
         </div>
 
         <div className="grid md:grid-cols-2 gap-6 max-w-5xl mx-auto">
-          <Card className="rounded-xl shadow-lg hover:shadow-xl transform hover:-translate-y-1 transition-all">
+          <Card className="landing-card glass-surface rounded-xl shadow-lg hover:shadow-xl transform hover:-translate-y-1 transition-all">
             <CardContent className="p-6">
               <div className="flex items-start gap-4">
                 <div className="w-12 h-12 rounded-md bg-primary/10 flex items-center justify-center">
@@ -307,7 +314,7 @@ export default function Landing() {
             </CardContent>
           </Card>
 
-          <Card className="rounded-xl shadow-lg hover:shadow-xl transform hover:-translate-y-1 transition-all">
+          <Card className="landing-card glass-surface rounded-xl shadow-lg hover:shadow-xl transform hover:-translate-y-1 transition-all">
             <CardContent className="p-6">
               <div className="flex items-start gap-4">
                 <div className="w-12 h-12 rounded-md bg-accent/10 flex items-center justify-center">
@@ -347,7 +354,7 @@ export default function Landing() {
         </div>
 
         <div className="grid md:grid-cols-3 gap-6 max-w-5xl mx-auto">
-          <Card className="rounded-xl shadow-md hover:shadow-lg transform hover:-translate-y-1 transition-all">
+          <Card className="landing-card glass-surface rounded-xl shadow-md hover:shadow-lg transform hover:-translate-y-1 transition-all">
             <CardContent className="p-6 text-center">
               <div className="mx-auto w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center mb-3">
                 <FileText className="w-6 h-6 text-primary" />
@@ -357,7 +364,7 @@ export default function Landing() {
             </CardContent>
           </Card>
 
-          <Card className="rounded-xl shadow-md hover:shadow-lg transform hover:-translate-y-1 transition-all">
+          <Card className="landing-card glass-surface rounded-xl shadow-md hover:shadow-lg transform hover:-translate-y-1 transition-all">
             <CardContent className="p-6 text-center">
               <div className="mx-auto w-12 h-12 rounded-full bg-accent/10 flex items-center justify-center mb-3">
                 <Mic className="w-6 h-6 text-accent" />
@@ -367,7 +374,7 @@ export default function Landing() {
             </CardContent>
           </Card>
 
-          <Card className="rounded-xl shadow-md hover:shadow-lg transform hover:-translate-y-1 transition-all">
+          <Card className="landing-card glass-surface rounded-xl shadow-md hover:shadow-lg transform hover:-translate-y-1 transition-all">
             <CardContent className="p-6 text-center">
               <div className="mx-auto w-12 h-12 rounded-full bg-success/10 flex items-center justify-center mb-3">
                 <BarChart3 className="w-6 h-6 text-success" />
@@ -387,21 +394,21 @@ export default function Landing() {
         </div>
 
         <div className="grid md:grid-cols-3 gap-6 max-w-5xl mx-auto">
-          <Card className="rounded-lg shadow-sm p-4">
+          <Card className="landing-card glass-surface rounded-lg shadow-sm p-4">
             <CardContent className="p-4">
               <h4 className="font-semibold">Candidates</h4>
               <div className="text-sm text-muted-foreground mt-2">Graduates, career switchers and experienced professionals who want to be judged on skills, not gaps in their CV.</div>
             </CardContent>
           </Card>
 
-          <Card className="rounded-lg shadow-sm p-4">
+          <Card className="landing-card glass-surface rounded-lg shadow-sm p-4">
             <CardContent className="p-4">
               <h4 className="font-semibold">Hiring managers</h4>
               <div className="text-sm text-muted-foreground mt-2">Team leads who care more about what people can do than which keywords appear on their CV.</div>
             </CardContent>
           </Card>
 
-          <Card className="rounded-lg shadow-sm p-4">
+          <Card className="landing-card glass-surface rounded-lg shadow-sm p-4">
             <CardContent className="p-4">
               <h4 className="font-semibold">Recruiters & talent teams</h4>
               <div className="text-sm text-muted-foreground mt-2">HR and talent teams who need signal, not noise, across large applicant pools.</div>

@@ -2,22 +2,35 @@
 const express = require('express');
 const router = express.Router();
 const dotenv = require('dotenv');
+const { authenticate } = require('../middleware/authenticate');
+
 dotenv.config();
+
+const allowedOrigins = new Set([
+  process.env.FRONTEND_ORIGIN,
+  'http://localhost:8080',
+  'http://127.0.0.1:8080',
+].filter(Boolean));
+
+function applyCors(req, res) {
+  const origin = req.headers.origin;
+  if (origin && allowedOrigins.has(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+  }
+  res.setHeader('Access-Control-Allow-Methods', 'POST,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'authorization, x-client-info, apikey, content-type');
+}
 
 router.use(express.json({ limit: '50mb' }));
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
-
 router.options('/', (req, res) => {
-  res.set(corsHeaders);
+  applyCors(req, res);
   res.sendStatus(200);
 });
 
-router.post('/', async (req, res) => {
-  res.set(corsHeaders);
+router.post('/', authenticate, async (req, res) => {
+  applyCors(req, res);
 
   try {
     // Validate req.body is a proper object
@@ -26,19 +39,21 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ error: 'Request body must be a valid JSON object' });
     }
 
-    const { interviewData, model = 'gpt-4o' } = req.body || {};
+    const { interviewData, model } = req.body || {};
 
     if (!interviewData) {
       return res.status(400).json({ error: 'Missing interviewData' });
     }
 
-    const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-    if (!OPENAI_API_KEY) {
-      return res.status(500).json({ error: 'OpenAI API key not configured' });
+    const GROQ_API_KEY = process.env.GROQ_API_KEY;
+    if (!GROQ_API_KEY) {
+      return res.status(500).json({ error: 'Groq API key not configured' });
     }
 
-    console.log('📊 Generating interview summary:', {
-      model,
+    const targetModel = process.env.GROQ_MODEL_TEXT || 'openai/gpt-oss-120b';
+
+    console.log('📊 Generating interview summary with Groq:', {
+      model: targetModel,
       transcriptLength: interviewData.transcript?.length || 0,
       evidenceCount: Object.keys(interviewData.evidence || {}).length
     });
@@ -145,27 +160,28 @@ ${Object.entries(evidence || {})
 
 Please provide a comprehensive final assessment of this interview session.`;
 
-    // Call OpenAI API
-    const openaiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+    // Call Groq API
+    const openaiResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${OPENAI_API_KEY}`,
+        Authorization: `Bearer ${GROQ_API_KEY}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model,
+        model: targetModel,
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt }
         ],
-        max_completion_tokens: 3000
+        response_format: { type: 'json_object' },
+        max_tokens: 3000
       }),
     });
 
     if (!openaiResponse.ok) {
       const errorText = await openaiResponse.text();
-      console.error('OpenAI API error:', errorText);
-      return res.status(502).json({ error: 'OpenAI API error', status: openaiResponse.status, body: errorText });
+      console.error('Groq API error:', errorText);
+      return res.status(502).json({ error: 'Groq API error', status: openaiResponse.status, body: errorText });
     }
 
     const result = await openaiResponse.json();

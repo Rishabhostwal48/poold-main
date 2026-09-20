@@ -1,5 +1,4 @@
-// Simple audio queue for sequential playback of ElevenLabs TTS
-// Uses a single HTMLAudioElement to avoid overlapping audio
+import { getAccessToken } from '@/lib/backendAuth';
 
 export type AudioQueue = {
   enqueueText: (text: string) => Promise<void>;
@@ -36,6 +35,58 @@ export function createAudioQueue({
     try { URL.revokeObjectURL(url); } catch {}
   };
 
+  const speakWithBrowserSpeech = (text: string, onComplete?: () => void) => {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
+      onComplete?.();
+      return;
+    }
+
+    let cleanText = text.trim();
+    try {
+      const parsed = JSON.parse(cleanText);
+      if (parsed && typeof parsed.text === 'string') cleanText = parsed.text;
+    } catch {}
+    cleanText = cleanText.replace(/[{}[\]"]/g, ' ').replace(/\s+/g, ' ').trim();
+
+    if (!cleanText) {
+      onComplete?.();
+      return;
+    }
+
+    try {
+      window.speechSynthesis.cancel();
+      if (window.speechSynthesis.paused) {
+        window.speechSynthesis.resume();
+      }
+
+      const utterance = new SpeechSynthesisUtterance(cleanText);
+      utterance.rate = 0.9;
+      utterance.pitch = 1.0;
+      utterance.volume = 1.0;
+
+      const voices = window.speechSynthesis.getVoices();
+      const englishVoice = voices.find((v) => v.lang.startsWith('en'));
+      if (englishVoice) {
+        utterance.voice = englishVoice;
+      }
+
+      utterance.onend = () => onComplete?.();
+      utterance.onerror = () => onComplete?.();
+
+      setTimeout(() => {
+        window.speechSynthesis.speak(utterance);
+      }, 50);
+    } catch {
+      onComplete?.();
+    }
+  };
+
+  const finishItem = (item: QueueItem) => {
+    playing = false;
+    item.onComplete?.();
+    setTimeout(() => void playNext(), 150);
+  };
+
   const playNext = async () => {
     if (playing) return;
     const next = queue.shift();
@@ -48,13 +99,28 @@ export function createAudioQueue({
 
     try {
       currentAbortController = new AbortController();
+      const token = getAccessToken();
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+
       const res = await fetch(TTS_URL, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({ text: next.text, voiceId, model_id }),
         signal: currentAbortController.signal,
       });
-      if (!res.ok) throw new Error(`TTS failed: ${res.status}`);
+
+      if (!res.ok) {
+        const errText = await res.text().catch(() => '');
+        console.warn(`[AudioQueue] ElevenLabs TTS fallback to browser speech (${res.status}):`, errText);
+        speakWithBrowserSpeech(next.text, () => {
+          finishItem(next);
+        });
+        return;
+      }
+
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
 
@@ -80,13 +146,20 @@ export function createAudioQueue({
       audio.addEventListener("ended", onEnded);
       audio.addEventListener("error", onError);
       audio.src = url;
-      // Some browsers require user gesture; Maya page has explicit Start button
-      await audio.play().catch(() => {
-        // If play fails (autoplay), pause and let user retry flow
-        playing = false;
+      audio.load();
+
+      // Chrome can reject playback even after a successful TTS response. Fall
+      // back to browser speech instead of silently advancing the interview.
+      try {
+        await audio.play();
+      } catch (playError) {
+        console.warn('[AudioQueue] Audio playback was blocked; using browser speech fallback:', playError);
+        audio.removeEventListener("ended", onEnded);
+        audio.removeEventListener("error", onError);
+        try { audio.pause(); } catch {}
         cleanupUrl(url);
-        next.onComplete?.();
-      });
+        speakWithBrowserSpeech(next.text, () => finishItem(next));
+      }
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {
         console.log('[AudioQueue] Playback aborted (barge-in)');

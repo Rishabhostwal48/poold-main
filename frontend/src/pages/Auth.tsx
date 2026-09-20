@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { signIn, signUp } from '@/lib/backendAuth';
+import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -13,6 +14,7 @@ type UserRole = 'admin' | 'interviewer' | 'interviewee';
 
 export default function Auth() {
   const navigate = useNavigate();
+  const { setAuthSession } = useAuth();
   const [loading, setLoading] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -29,9 +31,12 @@ export default function Auth() {
 
     setLoading(true);
     try {
-      const { session } = await signIn(email, password);
-      localStorage.setItem('backend_session', JSON.stringify(session));
+      const res = await signIn(email, password);
+      if (!res.session?.access_token) {
+        throw new Error('Login response did not contain an access token');
+      }
 
+      setAuthSession(res.user, res.session);
       toast.success('Logged in successfully');
       navigate('/');
     } catch (error: any) {
@@ -59,7 +64,7 @@ export default function Auth() {
       await signUp(email, password, name, selectedRoles);
 
       toast.success('Account created! You can now sign in.');
-      navigate('/');
+      navigate('/auth');
     } catch (error: any) {
       toast.error(error.message || 'Failed to sign up');
     } finally {

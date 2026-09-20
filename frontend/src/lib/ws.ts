@@ -1,5 +1,7 @@
 // WebSocket client with jittered backoff, keepalive, outbox queue,
 // ASR-aware errors, explicit binaryType, and configurable timeouts.
+import { io, Socket } from "socket.io-client";
+import { getAccessToken } from "./backendAuth";
 
 export type InterviewQuestion = {
   question: string;
@@ -29,7 +31,7 @@ export type WSClientOptions = {
 };
 
 class InterviewWebSocket {
-  private ws: WebSocket | null = null;
+  private ws: Socket | null = null;
   private url: string = "";
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 5;
@@ -40,22 +42,18 @@ class InterviewWebSocket {
   private reconnectTimer: number | null = null;
   private keepaliveTimer: number | null = null;
   private readonly subprotocols: string[] | undefined;
+  private readonly authToken: string;
   private livenessAttached = false;
   private outbox: Array<ArrayBuffer | string> = [];
   private noRetryCodes: Set<number>;
 
   constructor(url?: string, token?: string, opts: WSClientOptions = {}) {
-    // Hardcode Supabase project ref and anon key for reliable client connectivity
-    const PROJECT_REF = "sxfjoqvwtjsiskqwftln";
-    const ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN4ZmpvcXZ3dGpzaXNrcXdmdGxuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTgwMjIxMzcsImV4cCI6MjA3MzU5ODEzN30.-XKr81Op91guPTO604XqAMciSb6zYl30TAsujeGKqW4";
-  
-    const baseUrl = url || import.meta.env.VITE_WEBSOCKET_URL;
-    const anon = token || ANON_KEY;
-
-    const u = new URL(baseUrl);
-    if (!u.searchParams.has("apikey")) u.searchParams.set("apikey", anon);
-    this.url = u.toString();
-    this.subprotocols = ["jwt", anon];
+    const configuredUrl = url || import.meta.env.VITE_WEBSOCKET_URL || "ws://localhost:3000/interview";
+    const authToken = token || "";
+    this.authToken = authToken;
+    const u = new URL(configuredUrl.replace(/^ws(s?):\/\//, "http$1://"));
+    this.url = `${u.protocol}//${u.host}`;
+    this.subprotocols = undefined;
 
     // Options
     this.maxReconnectAttempts = opts.maxReconnectAttempts ?? this.maxReconnectAttempts;
@@ -80,32 +78,27 @@ class InterviewWebSocket {
     this.isConnecting = true;
 
     try {
-      this.ws = new WebSocket(this.url, this.subprotocols);
+      const sessionToken = this.authToken || getAccessToken() || "";
+      this.ws = io(`${this.url}/interview`, {
+        auth: sessionToken ? { token: sessionToken } : undefined,
+        transports: ["websocket"],
+        autoConnect: false,
+      });
       const ws = this.ws;
-      ws.binaryType = "arraybuffer";
 
-      ws.onopen = (event) => {
+      ws.on("connect", () => {
         this.isConnecting = false;
         this.reconnectAttempts = 0;
         this.clearReconnect();
         this.startKeepalive();
         this.attachLivenessListeners();
-        this.handlers.onOpen?.(event);
+        this.handlers.onOpen?.(new Event("open"));
         this.flushOutbox();
-      };
+      });
 
-      ws.onmessage = async (event) => {
+      ws.on("message", async (message: string) => {
         try {
-          let text: string;
-          if (typeof event.data === "string") {
-            text = event.data;
-          } else if (event.data instanceof Blob) {
-            text = await event.data.text();
-          } else if (event.data instanceof ArrayBuffer) {
-            text = new TextDecoder().decode(event.data);
-          } else {
-            return;
-          }
+          const text = typeof message === "string" ? message : JSON.stringify(message);
           let data: any;
           try {
             data = JSON.parse(text);
@@ -145,21 +138,20 @@ class InterviewWebSocket {
         } catch (err) {
           this.handlers.onError?.(err as Error);
         }
-      };
+      });
 
-      ws.onerror = (event) => {
+      ws.on("connect_error", (error) => {
         this.isConnecting = false;
-        this.handlers.onError?.(event as Event);
-      };
+        this.handlers.onError?.(error);
+      });
 
-      ws.onclose = (event) => {
+      ws.on("disconnect", (reason) => {
         this.isConnecting = false;
         this.ws = null;
         this.stopKeepalive();
-        this.handlers.onClose?.(event);
+        this.handlers.onClose?.(new CloseEvent("close", { reason }));
         if (
-          !this.noRetryCodes.has(event.code) &&
-          event.code !== 1000 &&
+          !this.noRetryCodes.has(1006) &&
           this.reconnectAttempts < this.maxReconnectAttempts
         ) {
           const jitter = Math.random() * 0.4 + 0.8;
@@ -167,30 +159,24 @@ class InterviewWebSocket {
           this.reconnectTimer = window.setTimeout(() => this.reconnect(), delay) as unknown as number;
           this.reconnectAttempts++;
         }
-      };
+      });
 
       await new Promise<void>((resolve, reject) => {
         const timeout = window.setTimeout(() => {
           this.isConnecting = false;
-          try {
-            ws.close();
-          } catch {}
+          ws.disconnect();
           reject(new Error("WebSocket connection timeout"));
         }, this.connectTimeoutMs);
 
-        const prevOpen = ws.onopen;
-        const prevErr = ws.onerror;
-
-        ws.onopen = (e) => {
-          prevOpen?.call(ws, e as any);
+        ws.once("connect", () => {
           clearTimeout(timeout);
           resolve();
-        };
-        ws.onerror = (e) => {
-          prevErr?.call(ws, e as any);
+        });
+        ws.once("connect_error", (error) => {
           clearTimeout(timeout);
-          reject(new Error("WebSocket connection failed"));
-        };
+          reject(error);
+        });
+        ws.connect();
       });
 
       return true;
@@ -212,7 +198,7 @@ class InterviewWebSocket {
     this.isConnecting = false;
     if (this.ws) {
       try {
-        this.ws.close(4001, "Force reconnect");
+        this.ws.disconnect();
       } catch {}
       this.ws = null;
     }
@@ -241,9 +227,7 @@ class InterviewWebSocket {
     this.stopKeepalive();
     this.keepaliveTimer = window.setInterval(() => {
       if (this.isConnected()) {
-        try {
-          this.ws!.send(JSON.stringify({ type: "ping", ts: Date.now() }));
-        } catch {}
+        this.ws!.emit("ping", { type: "ping", ts: Date.now() });
       }
     }, 25_000) as unknown as number;
   }
@@ -257,14 +241,18 @@ class InterviewWebSocket {
 
   private safeSend(payload: ArrayBuffer | string) {
     if (!this.ws) return;
-    if (this.ws.bufferedAmount > 1_000_000) return; // basic backpressure
-    this.ws.send(payload as any);
+    if (typeof payload === "string") {
+      const message = JSON.parse(payload);
+      this.ws.emit(message.type, message);
+    } else {
+      this.ws.emit("audio", payload);
+    }
   }
 
   private flushOutbox() {
     if (!this.ws) return;
-    while (this.outbox.length && this.ws.bufferedAmount < 1_000_000) {
-      this.ws.send(this.outbox.shift() as any);
+    while (this.outbox.length) {
+      this.safeSend(this.outbox.shift() as ArrayBuffer | string);
     }
   }
 
@@ -296,10 +284,10 @@ class InterviewWebSocket {
   }
 
   isConnected(): boolean {
-    return this.ws?.readyState === WebSocket.OPEN;
+    return this.ws?.connected === true;
   }
   getReadyState(): number | null {
-    return this.ws?.readyState ?? null;
+    return this.ws?.connected ? 1 : 0;
   }
   isConnectingNow() {
     return this.isConnecting;
@@ -320,7 +308,7 @@ class InterviewWebSocket {
     this.stopKeepalive();
     if (this.ws) {
       try {
-        this.ws.close(1000, opts?.manual ? "Manual close" : "Client disconnect");
+        this.ws.disconnect();
       } finally {
         this.ws = null;
       }

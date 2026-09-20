@@ -1,4 +1,4 @@
-import { supabase } from "@/integrations/supabase/client";
+import { getAccessToken } from "@/lib/backendAuth";
 
 interface RealtimeMessage {
   type: string;
@@ -48,12 +48,16 @@ export class RealtimeClient {
     try {
       console.log('[Realtime] Starting session...');
       
-      // Get ephemeral token from Supabase function
-      // const { data, error } = await supabase.functions.invoke("realtime-session");
-      
       let data, error;
+      const token = getAccessToken();
+      const headers: Record<string, string> = {};
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+
        await fetch(`${import.meta.env.VITE_BACKEND_URL}/realtime-session`,{
         method: "POST",
+        headers,
        })
        .then(async (response) => {
          if (!response.ok) {
@@ -65,13 +69,15 @@ export class RealtimeClient {
          error = err;
        });
 
-      if (error || !data?.client_secret?.value) {
+      const clientSecret = data?.value ?? data?.client_secret?.value;
+
+      if (error || !clientSecret) {
         console.error('[Realtime] Failed to get ephemeral token:', error);
         this.options.onError?.(new Error("Failed to get ephemeral token"));
         return false;
       }
 
-      this.ephemeralToken = data.client_secret.value;
+      this.ephemeralToken = clientSecret;
       console.log('[Realtime] Got ephemeral token, expires:', data.expires_at);
 
       // Create peer connection
@@ -156,8 +162,8 @@ export class RealtimeClient {
       console.log('[Realtime] Created offer');
 
       // Connect to OpenAI Realtime API
-      const baseUrl = "https://api.openai.com/v1/realtime";
-      const model = "gpt-4o-realtime-preview-2024-12-17";
+      const baseUrl = "https://api.openai.com/v1/realtime/calls";
+      const model = "gpt-realtime";
       const sdpResponse = await fetch(`${baseUrl}?model=${model}`, {
         method: "POST",
         body: offer.sdp,
@@ -168,7 +174,8 @@ export class RealtimeClient {
       });
 
       if (!sdpResponse.ok) {
-        throw new Error(`SDP exchange failed: ${sdpResponse.status}`);
+        const errorText = await sdpResponse.text();
+        throw new Error(`SDP exchange failed: ${sdpResponse.status}${errorText ? ` - ${errorText}` : ''}`);
       }
 
       const answerSdp = await sdpResponse.text();

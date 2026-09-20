@@ -3,8 +3,9 @@ import { User } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/integrations/supabase/client';
+import { getAccessToken } from '@/lib/backendAuth';
 import { toast } from 'sonner';
+import { ThemeToggle } from '@/components/ThemeToggle';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -23,7 +24,7 @@ interface UserMenuProps {
 
 export function UserMenu({ showBackButton = true }: UserMenuProps) {
   const navigate = useNavigate();
-  const { signOut } = useAuth();
+  const { user, signOut } = useAuth();
 
   const handleLogout = async () => {
     try {
@@ -37,30 +38,25 @@ export function UserMenu({ showBackButton = true }: UserMenuProps) {
 
   const handleDeleteAccount = async () => {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      
-      if (!user) {
-        toast.error('No user found');
+      const token = getAccessToken();
+      if (!user || !token) {
+        toast.error('No authenticated user found');
         return;
       }
 
-      // Call edge function to delete user account
-      // const { data, error } = await supabase.functions.invoke('delete-user-account', {
-      //   body: { userId: user.id }
-      // });
-      let data,error;
-      await fetch(`${import.meta.env.VITE_BACKEND_URL}/delete-user-account`, {
+      const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000';
+      const response = await fetch(`${BACKEND_URL}/delete-user-account`, {
         method: 'POST',
+        credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
         },
-        body: { userId: user.id }
-      }).then((res)=>res.json()).then((resData)=>{
-        data=resData;
-      }).catch((err)=>{
-        error=err;
-      })
-      if (error) throw error;
+        body: JSON.stringify({ userId: user.id })
+      });
+
+      const resData = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(resData.error || 'Failed to delete account');
 
       // Sign out after successful deletion
       await signOut();
@@ -73,6 +69,7 @@ export function UserMenu({ showBackButton = true }: UserMenuProps) {
 
   return (
     <div className="flex gap-2">
+      <ThemeToggle />
       <Button
         variant="ghost"
         size="sm"

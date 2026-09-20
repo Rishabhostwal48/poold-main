@@ -1,25 +1,38 @@
 const express = require('express');
 const router = express.Router();
 const dotenv = require('dotenv');
+const { authenticate } = require('../middleware/authenticate');
+
 dotenv.config();
 
-router.use(express.json({ limit: '1mb' }));
+const allowedOrigins = new Set([
+  process.env.FRONTEND_ORIGIN,
+  'http://localhost:8080',
+  'http://127.0.0.1:8080',
+].filter(Boolean));
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
+function applyCors(req, res) {
+  const origin = req.headers.origin;
+  if (origin && allowedOrigins.has(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+  }
+  res.setHeader('Access-Control-Allow-Methods', 'POST,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'authorization, x-client-info, apikey, content-type');
+}
+
+router.use(express.json({ limit: '1mb' }));
 
 const MIN_ANSWER_DURATION_SECONDS = 10;
 const MIN_WORD_COUNT = 5;
 
 router.options('/', (req, res) => {
-  res.set(corsHeaders);
+  applyCors(req, res);
   res.sendStatus(200);
 });
 
-router.post('/', async (req, res) => {
-  res.set(corsHeaders);
+router.post('/', authenticate, async (req, res) => {
+  applyCors(req, res);
 
   try {
     const { answerText, durationSeconds, questionIndex } = req.body || {};

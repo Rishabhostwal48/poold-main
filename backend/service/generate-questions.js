@@ -1,33 +1,48 @@
 const express = require('express');
 const router = express.Router();
 const dotenv = require('dotenv');
+const { authenticate } = require('../middleware/authenticate');
+
 dotenv.config();
+
+const allowedOrigins = new Set([
+  process.env.FRONTEND_ORIGIN,
+  'http://localhost:8080',
+  'http://127.0.0.1:8080',
+].filter(Boolean));
+
+function applyCors(req, res) {
+  const origin = req.headers.origin;
+  if (origin && allowedOrigins.has(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+  }
+  res.setHeader('Access-Control-Allow-Methods', 'POST,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'authorization, x-client-info, apikey, content-type');
+}
 
 router.use(express.json({ limit: '200kb' }));
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
-
 router.options('/', (req, res) => {
-  res.set(corsHeaders);
+  applyCors(req, res);
   res.sendStatus(200);
 });
 
-router.post('/', async (req, res) => {
-  res.set(corsHeaders);
+router.post('/', authenticate, async (req, res) => {
+  applyCors(req, res);
 
   try {
-    const { jobDescription, candidateProfile, difficulty = 'mid', model = 'gpt-4o-mini' } = req.body || {};
+    const { jobDescription, candidateProfile, difficulty = 'mid', model } = req.body || {};
 
-    const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-    if (!OPENAI_API_KEY) {
-      return res.status(500).json({ error: 'OpenAI API key not configured' });
+    const GROQ_API_KEY = process.env.GROQ_API_KEY;
+    if (!GROQ_API_KEY) {
+      return res.status(500).json({ error: 'Groq API key not configured' });
     }
 
-    console.log('🤖 Generating interview questions:', {
-      model,
+    const targetModel = process.env.GROQ_MODEL_TEXT || 'openai/gpt-oss-120b';
+
+    console.log('🤖 Generating interview questions with Groq:', {
+      model: targetModel,
       difficulty,
       jobDescriptionLength: jobDescription ? jobDescription.length : 0
     });
@@ -37,28 +52,29 @@ router.post('/', async (req, res) => {
 
     const userPrompt = `\nJob Description:\n${jobDescription || ''}\n\nCandidate Profile:\n${JSON.stringify(candidateProfile || {}, null, 2)}\n\nDifficulty Level: ${difficulty}\n\nGenerate appropriate interview questions now.`;
 
-    // Call OpenAI API
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    // Call Groq API
+    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${OPENAI_API_KEY}`,
+        'Authorization': `Bearer ${GROQ_API_KEY}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model,
+        model: targetModel,
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt }
         ],
-        max_completion_tokens: 2000,
+        response_format: { type: 'json_object' },
+        max_tokens: 2000,
         temperature: 0.7
       }),
     });
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => '');
-      console.error('OpenAI API error:', errorText);
-      return res.status(502).json({ error: `OpenAI API error: ${response.status}`, body: errorText });
+      console.error('Groq API error:', errorText);
+      return res.status(502).json({ error: `Groq API error: ${response.status}`, body: errorText });
     }
 
     const result = await response.json();

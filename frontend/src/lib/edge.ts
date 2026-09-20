@@ -1,18 +1,16 @@
-import { X } from "lucide-react";
+import { getAccessToken } from "./backendAuth";
 
 export async function callEdge(path: string, body?: FormData | string, method = "POST") {
   const base = import.meta.env.VITE_BACKEND_URL;
   console.log("Edge base URL:", base);
-  if (!base) throw new Error("Missing VITE_SUPABASE_EDGE_URL");
+  if (!base) throw new Error("Missing VITE_BACKEND_URL");
 
   const url = `${base}/${path.replace(/^\/+/, "")}`;
-  const anon = import.meta.env.VITE_SUPABASE_ANON_KEY;
+  const token = getAccessToken();
   const headers: Record<string, string> = {};
 
-  // ⬇️ Required for projects where functions need a JWT
-  if (anon) {
-    headers["Authorization"] = `Bearer ${anon}`;
-    headers["apikey"] = anon;
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
   }
 
   // ⚠️ Never set Content-Type for FormData (browser adds boundary)

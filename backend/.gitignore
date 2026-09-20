@@ -2,3 +2,7 @@
 node_modules
 index.html
 scripts/
+
+**migration**
+test-loop7-frontend-cognito-auth.js
+test**

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { supabase } from '@/integrations/supabase/client';
+import { createJobPosting, deleteJobPosting, listJobPostings, updateJobPosting } from '@/lib/jobPostingsApi';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -31,6 +31,7 @@ export default function JobPostings() {
   const { hasRole, loading: rolesLoading } = useUserRole();
   const [jobPostings, setJobPostings] = useState<JobPosting[]>([]);
   const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   
@@ -58,19 +59,11 @@ export default function JobPostings() {
 
   const fetchJobPostings = async () => {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
-      const { data, error } = await supabase
-        .from('job_postings')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-      setJobPostings(data || []);
-    } catch (error: any) {
-      toast.error('Failed to fetch job postings');
+      const { data } = await listJobPostings<JobPosting>();
+      setJobPostings(data);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Failed to fetch job postings';
+      toast.error(message);
       console.error(error);
     } finally {
       setLoading(false);
@@ -85,35 +78,23 @@ export default function JobPostings() {
       return;
     }
 
-    setLoading(true);
+    setSubmitting(true);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('Not authenticated');
-
       if (editingId) {
-        const { error } = await supabase
-          .from('job_postings')
-          .update(formData)
-          .eq('id', editingId)
-          .eq('user_id', user.id);
-
-        if (error) throw error;
+        await updateJobPosting(editingId, formData);
         toast.success('Job posting updated successfully');
       } else {
-        const { error } = await supabase
-          .from('job_postings')
-          .insert([{ ...formData, user_id: user.id }]);
-
-        if (error) throw error;
+        await createJobPosting(formData);
         toast.success('Job posting created successfully');
       }
 
       resetForm();
-      fetchJobPostings();
-    } catch (error: any) {
-      toast.error(error.message || 'Failed to save job posting');
+      await fetchJobPostings();
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Failed to save job posting';
+      toast.error(message);
     } finally {
-      setLoading(false);
+      setSubmitting(false);
     }
   };
 
@@ -136,20 +117,12 @@ export default function JobPostings() {
     if (!confirm('Are you sure you want to delete this job posting?')) return;
 
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
-      const { error } = await supabase
-        .from('job_postings')
-        .delete()
-        .eq('id', id)
-        .eq('user_id', user.id);
-
-      if (error) throw error;
+      await deleteJobPosting(id);
       toast.success('Job posting deleted successfully');
-      fetchJobPostings();
-    } catch (error: any) {
-      toast.error('Failed to delete job posting');
+      await fetchJobPostings();
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Failed to delete job posting';
+      toast.error(message);
     }
   };
 
@@ -315,8 +288,8 @@ export default function JobPostings() {
                 </div>
 
                 <div className="flex gap-4">
-                  <Button type="submit" disabled={loading}>
-                    {loading ? 'Saving...' : editingId ? 'Update Job Posting' : 'Create Job Posting'}
+                  <Button type="submit" disabled={submitting}>
+                    {submitting ? 'Saving...' : editingId ? 'Update Job Posting' : 'Create Job Posting'}
                   </Button>
                   <Button type="button" variant="outline" onClick={resetForm}>
                     Cancel

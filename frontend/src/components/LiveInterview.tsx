@@ -104,15 +104,12 @@ const navigate = useNavigate();
     
     if (message.type === "question" && message.data?.question) {
       // AI interviewer asked a question - play with neural TTS, fallback to browser synthesis
-      console.log("🤖 AI interviewer asked:", message.data.question);
-      playTTS(message.data.question).catch((error) => {
-        console.warn("TTS failed, falling back to browser synthesis:", error);
-        // Fallback to browser SpeechSynthesis
-        const utterance = new SpeechSynthesisUtterance(message.data.question);
-        utterance.rate = 0.85;
-        utterance.pitch = 0.95;
-        speechSynthesis.speak(utterance);
-      });
+      const question = String(message.data.question).trim();
+      console.log("🤖 AI interviewer asked:", question);
+      chatRef.current?.pauseRecording();
+      void playTTS(question)
+        .catch((error) => console.warn("TTS failed:", error))
+        .finally(() => void chatRef.current?.startRecording());
       
       // Add question to transcript
       const transcriptItem: TranscriptItem = {
@@ -126,15 +123,12 @@ const navigate = useNavigate();
     
     if (message.type === "ai_response" && message.data?.text) {
       // AI interviewer spoke - play with neural TTS, fallback to browser synthesis
-      console.log("🤖 AI interviewer said:", message.data.text);
-      playTTS(message.data.text).catch((error) => {
-        console.warn("TTS failed, falling back to browser synthesis:", error);
-        // Fallback to browser SpeechSynthesis
-        const utterance = new SpeechSynthesisUtterance(message.data.text);
-        utterance.rate = 0.85;
-        utterance.pitch = 0.95;
-        speechSynthesis.speak(utterance);
-      });
+      const text = String(message.data.text).trim();
+      console.log("🤖 AI interviewer said:", text);
+      chatRef.current?.pauseRecording();
+      void playTTS(text)
+        .catch((error) => console.warn("TTS failed:", error))
+        .finally(() => void chatRef.current?.startRecording());
     }
     
     if (message.type === "connected") {
@@ -179,42 +173,9 @@ const navigate = useNavigate();
     startingRef.current = true;
     try {
       setError("");
-      // Try WebRTC first
-      const rtc = new RealtimeClient({
-        onMessage: (m) => handleMessage(m),
-        onConnected: () => {
-          setIsConnected(true);
-          setUsingRTC(true);
-          setError("");
-          toast({
-            title: "Connected (WebRTC)",
-            description: "AI interviewer (WebRTC) is connected.",
-          });
-        },
-        onDisconnected: () => {
-          setIsConnected(false);
-          // fall back to websocket if not already using it
-        },
-        onError: (err) => {
-          console.warn("RealtimeClient error:", err);
-        },
-        onSpeakingChange: handleSpeakingChange
-      });
-      rtcRef.current = rtc;
-
-      const started = await rtc.startSession();
-      if (started) {
-        // WebRTC active; do not start WebSocket recording
-        setUsingRTC(true);
-        return;
-      }
-
-      // If startSession returned false, try websocket fallback
-      console.log("WebRTC startSession failed; falling back to WebSocket");
       await startWebsocketFallback();
     } catch (err) {
-      console.warn("WebRTC setup failed, falling back to WebSocket:", err);
-      await startWebsocketFallback();
+      console.warn("Interview setup failed:", err);
     } finally {
       startingRef.current = false;
     }
@@ -227,9 +188,6 @@ const navigate = useNavigate();
       await chat.init();
       setUsingRTC(false);
       setIsConnected(true);
-      // start mic recording automatically for websocket fallback
-      await chatRef.current?.startRecording();
-      setIsRecording(true);
       toast({
         title: "Connected (WebSocket)",
         description: "Fell back to WebSocket realtime pipeline.",
