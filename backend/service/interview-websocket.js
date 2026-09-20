@@ -14,6 +14,8 @@ const allowedOrigins = new Set([
   process.env.FRONTEND_ORIGIN,
   'http://localhost:8080',
   'http://127.0.0.1:8080',
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
 ].filter(Boolean));
 
 function applyCors(req, res) {
@@ -95,7 +97,10 @@ function setupWebSocketHandlers(io) {
     try {
       const authHeader = socket.handshake.auth?.token || socket.handshake.headers?.authorization;
       if (!authHeader) {
-        return next(new Error('Authentication error: Missing token'));
+        // Maya is available from the public /maya route. Keep authenticated
+        // sessions supported, but allow anonymous interview sessions too.
+        socket.user = { id: null, email: null, anonymous: true };
+        return next();
       }
 
       const token = authHeader.replace(/^Bearer\s+/i, '');
@@ -145,7 +150,7 @@ function setupWebSocketHandlers(io) {
   });
 
   nsp.on('connection', async (socket) => {
-    if (!socket.user || !socket.user.id) {
+    if (!socket.user) {
       socket.disconnect(true);
       return;
     }
@@ -366,7 +371,50 @@ ${currentFollowUpCount < MAX_FOLLOW_UPS_PER_QUESTION ? `You can ask ${MAX_FOLLOW
       }
     }
 
-    // ---- STT processing using OpenAI Whisper ----
+    async function transcribeAudio(file, language) {
+      const providers = [
+        process.env.OPENAI_API_KEY && {
+          name: 'OpenAI',
+          url: 'https://api.openai.com/v1/audio/transcriptions',
+          key: process.env.OPENAI_API_KEY,
+          model: 'whisper-1'
+        },
+        process.env.GROQ_API_KEY && {
+          name: 'Groq',
+          url: 'https://api.groq.com/openai/v1/audio/transcriptions',
+          key: process.env.GROQ_API_KEY,
+          model: process.env.GROQ_MODEL_STT || 'whisper-large-v3-turbo'
+        }
+      ].filter(Boolean);
+
+      let lastError;
+      for (const provider of providers) {
+        const form = new FormData();
+        form.append('file', new Blob([file.data], { type: file.type }), file.name);
+        form.append('model', provider.model);
+        if (language) form.append('language', language);
+
+        try {
+          const response = await fetch(provider.url, {
+            method: 'POST',
+            headers: { Authorization: 'Bearer ' + provider.key },
+            body: form
+          });
+          if (response.ok) {
+            console.log(`✅ ${provider.name} transcription succeeded`);
+            return response.json();
+          }
+          lastError = new Error(`${provider.name} transcription failed (${response.status})`);
+          await logSttFailure(response);
+        } catch (error) {
+          lastError = error;
+          console.error(`❌ ${provider.name} transcription request failed:`, error);
+        }
+      }
+      throw lastError || new Error('No transcription provider configured');
+    }
+
+    // ---- STT processing using OpenAI Whisper with Groq fallback ----
     async function processAccumulated(force = false) {
       if (processing || accumulatedChunks.length === 0) return;
       const currentCodec = audioCodec;
@@ -383,13 +431,6 @@ ${currentFollowUpCount < MAX_FOLLOW_UPS_PER_QUESTION ? `You can ask ${MAX_FOLLOW
       processing = true;
 
       try {
-        const openAIApiKey = process.env.OPENAI_API_KEY;
-        if (!openAIApiKey) {
-          console.error('❌ OPENAI_API_KEY not configured');
-          processing = false;
-          return;
-        }
-
         const merged = Buffer.concat(accumulatedChunks);
         accumulatedChunks = [];
         accumulatedBytes = 0;
@@ -409,35 +450,8 @@ ${currentFollowUpCount < MAX_FOLLOW_UPS_PER_QUESTION ? `You can ask ${MAX_FOLLOW
           file = { data: merged, name, type };
         }
 
-        const form = new FormData();
-        const blob = new Blob([file.data], { type: file.type });
-        form.append('file', blob, file.name);
-        form.append('model', 'whisper-1');
-        if (language) form.append('language', language);
+        const result = await transcribeAudio(file, language);
 
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 60_000);
-
-        const resp = await fetch('https://api.openai.com/v1/audio/transcriptions', {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${openAIApiKey}`
-          },
-          body: form,
-          signal: controller.signal
-        }).finally(() => clearTimeout(timeout));
-
-        if (!resp.ok) {
-          await logSttFailure(resp);
-          writeJSON(socket, {
-            type: 'error',
-            message: 'Transcription failed'
-          });
-          processing = false;
-          return;
-        }
-
-        const result = await resp.json();
         const text = (result?.text || '').trim();
 
         if (text) {
@@ -573,8 +587,8 @@ ${currentFollowUpCount < MAX_FOLLOW_UPS_PER_QUESTION ? `You can ask ${MAX_FOLLOW
       } catch  {}
     }, 30_000);
 
-    // ---- Socket.io Events ----
-    socket.on('connect', async () => {
+    // Generate the greeting after the namespace connection is established.
+    (async () => {
       console.log('📞 Socket.io connected', { sessionId });
 
       const first = await generateMayaResponse();
@@ -595,6 +609,12 @@ ${currentFollowUpCount < MAX_FOLLOW_UPS_PER_QUESTION ? `You can ask ${MAX_FOLLOW
           data: { question: fallback, isGreeting: true }
         });
       }
+    })().catch((err) => {
+      console.error('❌ Error generating initial interview question:', err);
+      writeJSON(socket, {
+        type: 'error',
+        message: 'Unable to start the interview'
+      });
     });
 
     socket.on('audio', async (data) => {

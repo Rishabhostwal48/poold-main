@@ -51,9 +51,15 @@ router.post('/', authenticate, express.json({ limit: '30mb' }), async (req, res)
       return res.status(400).json({ error: 'No audio data provided (base64 string expected)' });
     }
 
-    const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+    const OPENAI_API_KEY = process.env.OPENAI_API_KEY || process.env.GROQ_API_KEY;
+    const transcriptionUrl = process.env.OPENAI_API_KEY
+      ? 'https://api.openai.com/v1/audio/transcriptions'
+      : 'https://api.groq.com/openai/v1/audio/transcriptions';
+    const transcriptionModel = process.env.OPENAI_API_KEY
+      ? model
+      : (process.env.GROQ_MODEL_STT || 'whisper-large-v3-turbo');
     if (!OPENAI_API_KEY) {
-      return res.status(500).json({ error: 'OpenAI API key not configured' });
+      return res.status(500).json({ error: 'No transcription provider configured' });
     }
 
     // Convert base64 to Buffer and check size
@@ -67,14 +73,14 @@ router.post('/', authenticate, express.json({ limit: '30mb' }), async (req, res)
     const filename = pickFilename(mimeType);
     const file = new File([buffer], filename, { type: mimeType });
     form.append('file', file);
-    form.append('model', model);
+    form.append('model', transcriptionModel);
     if (language) form.append('language', language);
     form.append('response_format', 'verbose_json');
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 120000); // 120s
 
-    const resp = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+    const resp = await fetch(transcriptionUrl, {
       method: 'POST',
       headers: { Authorization: `Bearer ${OPENAI_API_KEY}` },
       body: form,
