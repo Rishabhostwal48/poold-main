@@ -685,4 +685,4 @@ For questions or feedback:
 
 **Built with ❤️ for better hiring**
 
-Last Updated: 2025
+Last Updated: 2026

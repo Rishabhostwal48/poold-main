@@ -51,15 +51,16 @@ router.post('/', authenticate, express.json({ limit: '30mb' }), async (req, res)
       return res.status(400).json({ error: 'No audio data provided (base64 string expected)' });
     }
 
-    const OPENAI_API_KEY = process.env.OPENAI_API_KEY || process.env.GROQ_API_KEY;
-    const transcriptionUrl = process.env.OPENAI_API_KEY
-      ? 'https://api.openai.com/v1/audio/transcriptions'
-      : 'https://api.groq.com/openai/v1/audio/transcriptions';
-    const transcriptionModel = process.env.OPENAI_API_KEY
-      ? model
-      : (process.env.GROQ_MODEL_STT || 'whisper-large-v3-turbo');
-    if (!OPENAI_API_KEY) {
-      return res.status(500).json({ error: 'No transcription provider configured' });
+    const apiKey = process.env.GROQ_API_KEY || process.env.OPENAI_API_KEY;
+    const isGroq = Boolean(process.env.GROQ_API_KEY);
+    const transcriptionUrl = isGroq
+      ? 'https://api.groq.com/openai/v1/audio/transcriptions'
+      : 'https://api.openai.com/v1/audio/transcriptions';
+    const transcriptionModel = isGroq
+      ? (process.env.GROQ_MODEL_STT || 'whisper-large-v3-turbo')
+      : model;
+    if (!apiKey) {
+      return res.status(500).json({ error: 'No STT transcription provider (GROQ_API_KEY) configured' });
     }
 
     // Convert base64 to Buffer and check size
@@ -82,7 +83,7 @@ router.post('/', authenticate, express.json({ limit: '30mb' }), async (req, res)
 
     const resp = await fetch(transcriptionUrl, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${OPENAI_API_KEY}` },
+      headers: { Authorization: `Bearer ${apiKey}` },
       body: form,
       signal: controller.signal,
     }).finally(() => clearTimeout(timeout));

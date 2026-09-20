@@ -52,7 +52,7 @@ router.post('/', authenticate, async (req, res) => {
 
     const defaultVoice = '21m00Tcm4TlvDq8ikWAM'; // Rachel default
     const vid = (voiceId && String(voiceId)) || defaultVoice;
-    const model = (model_id && String(model_id)) || 'eleven_turbo_v2';
+    const model = (model_id && String(model_id)) || 'eleven_turbo_v2_5';
     const settings = voice_settings || {
       stability: 0.4,
       similarity_boost: 0.8,
@@ -76,8 +76,16 @@ router.post('/', authenticate, async (req, res) => {
 
     if (!upstreamRes.ok) {
       const body = await upstreamRes.text().catch(() => '');
-      console.error(`❌ ElevenLabs API error: ${upstreamRes.status} - ${body}`);
-      return res.status(502).json({ error: 'Upstream TTS failed', status: upstreamRes.status, body });
+      console.error(`❌ ElevenLabs API error (${upstreamRes.status}):`, body);
+      
+      if (upstreamRes.status === 401 || upstreamRes.status === 403) {
+        return res.status(403).json({
+          error: 'ElevenLabs API key is missing text_to_speech permission',
+          status: upstreamRes.status,
+          details: body
+        });
+      }
+      return res.status(502).json({ error: 'Upstream ElevenLabs TTS failed', status: upstreamRes.status, body });
     }
 
     // Read response as arrayBuffer and convert to Buffer to send via Express

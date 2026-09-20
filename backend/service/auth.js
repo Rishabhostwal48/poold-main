@@ -335,6 +335,19 @@ router.post('/refresh', async (req, res) => {
     });
   } catch (err) {
     console.error('POST /auth/refresh error:', err.message);
+    const isNetworkOrDnsError =
+      err.code === 'ENOTFOUND' ||
+      err.code === 'ETIMEDOUT' ||
+      err.code === 'ECONNRESET' ||
+      err.code === 'EAI_AGAIN' ||
+      err.name === 'TimeoutError' ||
+      (err.message && (err.message.includes('getaddrinfo') || err.message.includes('ENOTFOUND')));
+
+    if (isNetworkOrDnsError) {
+      console.warn('⚠️ Transient network error during Cognito refresh — keeping refresh cookie intact');
+      return res.status(503).json({ error: 'Authentication service temporarily unavailable' });
+    }
+
     clearRefreshCookie(res);
     return res.status(401).json({ error: 'Invalid or expired refresh token' });
   }

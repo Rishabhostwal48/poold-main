@@ -61,6 +61,10 @@ async function logSttFailure(resp) {
   try {
     body = await resp.text();
   } catch  {}
+  if (resp.status === 400 && (body.includes('invalid_media_file') || body.includes('could not process file'))) {
+    console.warn('⚠️ STT skipped unparseable audio fragment (400 invalid_media_file)');
+    return;
+  }
   console.error('❌ STT failed', {
     status: resp.status,
     statusText: resp.statusText,
@@ -325,8 +329,27 @@ ${currentFollowUpCount < MAX_FOLLOW_UPS_PER_QUESTION ? `You can ask ${MAX_FOLLOW
         const data = await resp.json();
         console.log('🧠 Maya Groq response generated:', data);
         const mayaResponse = data?.choices?.[0]?.message?.content ?? '';
-        const match = mayaResponse.match(/(.*?)\[\[END_QUESTION\]\]/s);
-        const questionText = (match ? match[1] : mayaResponse).trim();
+        let questionText = mayaResponse.trim();
+        try {
+          const parsed = JSON.parse(mayaResponse);
+          if (parsed && typeof parsed.text === 'string' && parsed.text.trim()) {
+            questionText = parsed.text.trim();
+          }
+        } catch {
+          const match = mayaResponse.match(/(.*?)\[\[END_QUESTION\]\]/s);
+          const raw = match ? match[1] : mayaResponse;
+          questionText = raw.replace(/^\{.*?"text":\s*"([^"]+)".*?\}$/s, '$1').trim();
+        }
+
+        if (!questionText) {
+          const fallbackQuestions = [
+            "Tell me about yourself and your recent experience.",
+            "Which recent project best shows your impact?",
+            "What technical skill would you most like to use in this role?",
+          ];
+          questionText = fallbackQuestions[Math.min(mainQuestionCount, fallbackQuestions.length - 1)];
+          console.warn('Maya returned empty text; using fallback question:', questionText);
+        }
 
         conversationHistory.push({
           role: 'assistant',
@@ -373,17 +396,17 @@ ${currentFollowUpCount < MAX_FOLLOW_UPS_PER_QUESTION ? `You can ask ${MAX_FOLLOW
 
     async function transcribeAudio(file, language) {
       const providers = [
-        process.env.OPENAI_API_KEY && {
-          name: 'OpenAI',
-          url: 'https://api.openai.com/v1/audio/transcriptions',
-          key: process.env.OPENAI_API_KEY,
-          model: 'whisper-1'
-        },
         process.env.GROQ_API_KEY && {
           name: 'Groq',
           url: 'https://api.groq.com/openai/v1/audio/transcriptions',
           key: process.env.GROQ_API_KEY,
           model: process.env.GROQ_MODEL_STT || 'whisper-large-v3-turbo'
+        },
+        process.env.OPENAI_API_KEY && {
+          name: 'OpenAI',
+          url: 'https://api.openai.com/v1/audio/transcriptions',
+          key: process.env.OPENAI_API_KEY,
+          model: 'whisper-1'
         }
       ].filter(Boolean);
 
@@ -414,24 +437,35 @@ ${currentFollowUpCount < MAX_FOLLOW_UPS_PER_QUESTION ? `You can ask ${MAX_FOLLOW
       throw lastError || new Error('No transcription provider configured');
     }
 
-    // ---- STT processing using OpenAI Whisper with Groq fallback ----
+    // ---- STT processing using Groq Whisper ----
+    let headerChunk = null;
+
     async function processAccumulated(force = false) {
       if (processing || accumulatedChunks.length === 0) return;
       const currentCodec = audioCodec;
 
-      if (!force) {
-        if (currentCodec === 'pcm16') {
-          const ms = bufferedMs();
-          if (ms < MIN_WINDOW_MS) return;
-        } else {
-          if (accumulatedBytes < MIN_BYTES_OPUS) return;
-        }
+      let merged = Buffer.concat(accumulatedChunks);
+
+      // Require at least ~3KB of data before sending unless forced
+      if (!force && merged.length < 3000) return;
+
+      if (merged.length < 500) {
+        accumulatedChunks = [];
+        accumulatedBytes = 0;
+        return;
       }
 
       processing = true;
 
       try {
-        const merged = Buffer.concat(accumulatedChunks);
+        // Prepend container header if WebM Opus to ensure valid media file structure
+        if (currentCodec === 'webm-opus' && headerChunk && headerChunk.length > 0) {
+          const hasEbmlHeader = merged.length >= 4 && merged[0] === 0x1A && merged[1] === 0x45 && merged[2] === 0xDF && merged[3] === 0xA3;
+          if (!hasEbmlHeader) {
+            merged = Buffer.concat([headerChunk, merged]);
+          }
+        }
+
         accumulatedChunks = [];
         accumulatedBytes = 0;
 
@@ -620,6 +654,9 @@ ${currentFollowUpCount < MAX_FOLLOW_UPS_PER_QUESTION ? `You can ask ${MAX_FOLLOW
     socket.on('audio', async (data) => {
       try {
         if (Buffer.isBuffer(data)) {
+          if (!headerChunk && data.byteLength > 0) {
+            headerChunk = data;
+          }
           accumulatedChunks.push(data);
           accumulatedBytes += data.byteLength;
 

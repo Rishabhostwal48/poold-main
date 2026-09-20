@@ -141,7 +141,7 @@ export class RealtimeChat {
       this.audioChunks = [];
 
       this.mediaRecorder.ondataavailable = (event) => {
-        if (event.data && event.data.size > 0 && this.ws?.connected) {
+        if (this.isRecording && event.data && event.data.size > 0 && this.ws?.connected) {
           // Convert to ArrayBuffer and send as binary
           event.data.arrayBuffer().then((arrayBuffer) => {
             const uint8Array = new Uint8Array(arrayBuffer);
@@ -192,6 +192,7 @@ export class RealtimeChat {
   stopRecording() {
     if (this.mediaRecorder && this.isRecording) {
       console.log("🎙️ Stopping MediaRecorder...");
+      this.isRecording = false;
       this.mediaRecorder.stop();
       this.mediaRecorder = null;
     }
@@ -214,6 +215,20 @@ export class RealtimeChat {
     }
 
     this.isRecording = false;
+  }
+
+  pauseRecording() {
+    if (this.mediaRecorder && this.isRecording) {
+      console.log("🎙️ Pausing recording while Maya is speaking...");
+      this.isRecording = false;
+      this.mediaRecorder.stop();
+      this.mediaRecorder = null;
+    }
+
+    if (this.flushIntervalId) {
+      clearInterval(this.flushIntervalId);
+      this.flushIntervalId = null;
+    }
   }
 
   sendTextResponse(text: string) {
