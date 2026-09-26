@@ -1,442 +1,283 @@
-# Poold: AI-Powered Skills Interview Platform
+# Poold
 
-Poold is a web application that helps companies interview candidates using skills-based questions instead of relying only on resumes.
+> **An AI-assisted, skills-based interview platform for structured candidate evaluation.**
 
-A candidate can:
+[![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)](https://react.dev/)
+[![Node.js](https://img.shields.io/badge/Node.js-Express-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
+[![AWS](https://img.shields.io/badge/Cloud-AWS-232F3E?logo=amazonaws&logoColor=white)](https://aws.amazon.com/)
+[![PostgreSQL](https://img.shields.io/badge/Database-PostgreSQL-4169E1?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
+[![Groq](https://img.shields.io/badge/AI-Groq-F55036)](https://groq.com/)
+[![Socket.IO](https://img.shields.io/badge/Realtime-Socket.IO-010101?logo=socketdotio)](https://socket.io/)
 
-- Create an account and sign in.
-- Upload a CV or resume.
-- Analyze a CV with AI.
-- Review job descriptions and skill requirements.
-- Complete a live interview with Maya, the AI interviewer.
-- Answer by speaking or typing.
-- Receive transcripts, analysis, skill-gap information, and an interview summary.
+## Project overview
 
-A recruiter or interviewer can:
+Poold helps candidates and interviewers run skills-focused interview workflows. Resumes provide useful context, but alone they offer limited evidence of how someone approaches role-related questions. Poold combines candidate profile and job requirements with structured interview questions, responses, transcripts, and AI-generated analysis to give interviewers more material to review.
 
-- Create and manage job postings.
-- Review candidates and interviews.
-- Compare skills and interview results.
-- View analysis and recommendations.
+Candidates can create an account, upload a CV, browse active job postings, and prepare for or take an interview. CV and job-description content can be analyzed to extract structured profiles and compare role requirements. The interview experience supports a live voice-oriented flow as well as a question-and-answer interview flow.
 
-This repository contains both the website and the server that powers it.
+Interviewers can create and manage job postings and review candidate, session, response, and analysis information through interviewer views. Generated summaries and response analysis are intended to support human review; they are not a substitute for interviewer judgment.
 
-## How The Project Works
+## The problem
 
-The project has three important parts:
+Resume screening and unstructured interviews can leave recruiters with incomplete or inconsistent evidence of a candidate's practical skills. Reading applications, mapping experience to requirements, and comparing interview responses also takes time. Poold organizes job requirements and interview evidence in one workflow so candidates can demonstrate relevant experience and interviewers can review it in context.
 
-```text
-Your browser
-    |
-    | React website
-    v
-Frontend (Vite, port 8080)
-    |
-    | HTTP API and Socket.IO interview connection
-    v
-Backend (Express, port 3000)
-    |
-    +--> PostgreSQL database
-    +--> Amazon Cognito authentication
-    +--> Amazon S3 file storage
-    +--> Groq/OpenAI AI services
-    +--> ElevenLabs text-to-speech (optional)
+## How Poold works
+
+### Candidate workflow
+
+1. Create an account and sign in.
+2. Browse active job postings or begin an interview setup.
+3. Upload a PDF or DOCX CV and provide or select job requirements.
+4. Review extracted candidate and job profiles, including a skills-gap view where available.
+5. Start an interview. Questions can be generated from the role and candidate information, or the candidate can use the live Maya interviewer flow.
+6. Submit text or spoken responses. In the live flow, audio is streamed to the backend, transcribed, and used to drive the next interviewer response.
+7. Review the transcript and generated interview assessment when the interview flow provides one.
+
+### Interviewer workflow
+
+1. Create, update, publish, or remove job postings.
+2. Review interview sessions, candidate details, responses, CV/job gap analyses, and available assessment data in the interviewer dashboard.
+3. Use transcripts and generated summaries as supporting information for evaluation.
+
+The code includes candidate applications and session records. Exact end-to-end behavior depends on the configured backend services and credentials.
+
+## Key features
+
+### Candidate experience
+
+- CV upload for PDF and DOCX files to Amazon S3.
+- CV and job-description parsing into structured profiles.
+- Active job-posting browse and application flow.
+- CV-to-job requirement gap analysis.
+- Interview question generation and guided interview setup.
+- Maya live interviewer with voice-oriented conversation and transcript display.
+- Interview summary and response analysis views, with JSON summary export.
+
+### Interviewer experience
+
+- Job posting management.
+- Dashboard views for sessions, responses, candidate details, and gap analyses.
+- Transcript and generated assessment data for review.
+
+### Platform
+
+- Amazon Cognito sign-up, sign-in, token refresh, and identity verification.
+- Express API with authenticated routes and role-aware data access.
+- PostgreSQL persistence for users and interview/job data.
+- Amazon S3 object storage with time-limited presigned download URLs for uploaded CVs.
+- Socket.IO transport for the Maya interview pipeline.
+
+## AI interview experience
+
+Poold has two interview-related paths in the code. The guided interview flow can generate questions from candidate and role profiles, analyze responses, and produce a final assessment. Maya is a live interviewer implemented over Socket.IO: it receives candidate audio, transcribes it, uses a language model to compose the next question or response, and sends events back to the client. The frontend includes speech playback integration through ElevenLabs.
+
+Groq is used for language-model tasks such as CV and job-description parsing, question generation, response analysis, interview summaries, and Maya's conversational response generation. Model IDs are configurable through environment variables. The current defaults are listed below. Audio transcription code still calls the OpenAI audio transcription endpoint with `whisper-1`; it therefore requires an OpenAI API key in the current implementation. ElevenLabs text-to-speech is also an external integration and requires its own key.
+
+## AWS and data architecture
+
+| Service / component | Responsibility in the code |
+| --- | --- |
+| Amazon Cognito | User-pool sign-up/sign-in and token-based identity; backend maps Cognito identities to application users. |
+| Amazon S3 | Stores uploaded CV objects; backend returns presigned download URLs. |
+| PostgreSQL | Persists application users, postings, applications, interview sessions, responses, transcripts, and analysis. The connection supports local PostgreSQL or a PostgreSQL host such as Amazon RDS. |
+| Express / Node.js | REST API, authentication checks, AI service calls, and Socket.IO server. |
+| Groq API | Text-generation and reasoning requests from backend services. |
+| OpenAI audio transcription API | Speech-to-text in the current transcription endpoint and Maya audio-processing path. |
+| ElevenLabs | Text-to-speech endpoint used by the voice experience. |
+
+The repository includes a PostgreSQL schema at [`database/aws_schema.sql`](database/aws_schema.sql). Although that schema is documented for RDS PostgreSQL, the application connects through standard PostgreSQL connection settings; the repository alone does not establish which hosted database instance is deployed.
+
+## AI providers and configured models
+
+| Provider | Model / configuration | Current use |
+| --- | --- | --- |
+| Groq | `openai/gpt-oss-120b` (`GROQ_MODEL_TEXT`) | Default for CV/job parsing, generated questions, response analysis, and summaries. Despite the model ID prefix, requests are sent to Groq's API. |
+| Groq | `openai/gpt-oss-20b` (`GROQ_MODEL_FAST`) | Maya live-interview response generation. |
+| Groq | `qwen/qwen3.8-27b` (`GROQ_MODEL_VISION`) | Configured model value for the job-description analysis vision path; that code's fallback is `qwen/qwen3.6-27b`. |
+| OpenAI | `whisper-1` | Audio transcription in the standalone transcription endpoint and the Maya WebSocket audio pipeline. |
+| ElevenLabs | `eleven_turbo_v2` (default) | Text-to-speech; the backend allows a voice/model override in the request. |
+
+The Groq text model settings can be overridden in the backend environment. The `GROQ_MODEL_VISION` setting is only used for the file/vision branch in job-description analysis; the text analysis path uses `GROQ_MODEL_TEXT`.
+
+## System architecture
+
+```mermaid
+flowchart TD
+    Candidate[Candidate browser] --> React[React + Vite frontend]
+    Interviewer[Interviewer browser] --> React
+    React -->|HTTPS REST + Cognito bearer token| API[Express / Node.js backend]
+    React <-->|Socket.IO interview events and audio| API
+    API --> Cognito[Amazon Cognito]
+    API --> PG[(PostgreSQL)]
+    API --> S3[Amazon S3 CV objects]
+    API --> Groq[Groq API: language tasks]
+    API --> Whisper[OpenAI Whisper: speech-to-text]
+    API --> ElevenLabs[ElevenLabs: text-to-speech]
 ```
 
-The frontend displays the application. The backend handles authentication, permissions, AI requests, file uploads, interview audio, and database operations.
+## Real-time interview communication
 
-## Main Features
+The backend creates a Socket.IO server and exposes the interview namespace at `/interview`. The frontend includes a WebSocket client and Maya interview page. During the live flow, the client sends audio chunks and interview metadata; the backend buffers audio, sends it for transcription, passes recognized candidate speech into Maya's Groq-powered response generation, then emits interviewer and transcript events to the client. Audio output is handled through the ElevenLabs TTS endpoint and frontend playback utilities.
 
-### Authentication
+This repository uses Socket.IO/WebSocket transport for this path. WebRTC is not used by the current implementation. The `/realtime-session` route is retained as a deprecated endpoint and returns HTTP 410; it is not an active OpenAI Realtime integration.
 
-The backend uses Amazon Cognito for user registration and login. The application stores the current access token in the browser and sends it to protected backend routes.
+## What we worked on
 
-### CV Upload And Analysis
+Poold began as an existing, in-progress project. During the AWS hackathon, the work focused on adapting and stabilizing that codebase for a usable demonstration rather than building the entire product from scratch.
 
-Users can upload a PDF resume. The backend stores the file in Amazon S3, extracts text, and sends the text to an AI parser. The result is converted into a candidate profile containing experience, skills, education, and certifications.
+- Debugged application issues and repaired frontend/backend flows and integrations.
+- Migrated active authentication and file-storage integrations from Supabase toward Amazon Cognito and Amazon S3.
+- Added a PostgreSQL-backed Express data layer; the schema and connection configuration support PostgreSQL deployments, including RDS.
+- Adapted text-generation and reasoning integrations to use Groq, with separate configurable models for different workloads.
+- Connected the live interview audio flow to transcription and speech playback integrations. The current repository still uses OpenAI Whisper for speech-to-text and ElevenLabs for text-to-speech.
+- Updated configuration and environment handling to support the migrated services.
 
-### Job Postings
+Historical Supabase references remain in comments and migration/schema context, but the active frontend and backend data/auth flows use the Express backend, Cognito, and PostgreSQL. No Supabase client package is present in the active application dependencies.
 
-Interviewers can create, edit, list, and delete job postings. Candidates can browse active postings. Job-posting requests go through the local Express backend at `/job-postings`.
+## Technology stack
 
-### Live Interviews
+| Area | Technologies |
+| --- | --- |
+| Frontend | React 18, TypeScript, Vite, React Router, Tailwind CSS, shadcn/ui components, Zustand, TanStack Query |
+| Backend | Node.js, Express 5, JavaScript, Multer |
+| Authentication | Amazon Cognito, JWT verification (`jsonwebtoken`, `jwks-rsa`) |
+| Database | PostgreSQL (`pg`) |
+| Cloud storage | Amazon S3 (`@aws-sdk/client-s3`, presigned URLs) |
+| AI | Groq API; OpenAI Whisper transcription; ElevenLabs text-to-speech |
+| Real-time | Socket.IO server/client and browser WebSocket client |
+| Document processing | `pdf-parse`, `pdfjs-dist`, `mammoth` |
 
-Maya can conduct interviews using two transport options:
+## Product tour
 
-- WebRTC with the OpenAI Realtime API.
-- Socket.IO/WebSocket fallback using recorded audio, transcription, and AI-generated questions.
+Watch the project tour: [Poold on YouTube](https://youtu.be/zubQUJdDRFU).
 
-The fallback transport sends candidate audio to the backend in small chunks. The backend sends audio to a speech-to-text provider, generates the next question, and sends it back to the browser.
+The repository contains a logo and generic placeholder illustrations, but no product screenshots. Add dashboard or interview screenshots here when they are available.
 
-### Text-To-Speech
+## End-to-end flow
 
-Browser speech is the default voice option because ElevenLabs library voices require a paid plan. ElevenLabs can be enabled explicitly if the account and selected voice support API usage.
+```text
+Candidate / Interviewer
+          ↓
+ Cognito authentication
+          ↓
+ Job posting browse or management
+          ↓
+ CV upload → S3 → CV and role analysis
+          ↓
+ Interview setup and question generation
+          ↓
+ Maya live interview over Socket.IO
+          ↓
+ Audio transcription → interview transcript and responses
+          ↓
+ Generated analysis and interviewer review
+```
 
-## Requirements
-
-Install these tools before starting:
-
-- Node.js 18 or newer
-- npm
-- A PostgreSQL database, either local or hosted
-- An Amazon Cognito user pool
-- An Amazon S3 bucket for CV files
-- A Groq API key for CV parsing, question generation, and transcription
-- Optional OpenAI API key for OpenAI-powered features
-- Optional ElevenLabs API key for paid text-to-speech
-
-You do not need SQL software installed just to use a hosted PostgreSQL database. SQL migrations are run against the configured database by the migration tool or database dashboard.
-
-## Project Structure
+## Repository layout
 
 ```text
 poold-main/
-├── backend/
-│   ├── index.js                 Express and Socket.IO server
-│   ├── service/                 API route handlers
-│   ├── middleware/              Authentication and request middleware
-│   ├── auth/                    Amazon Cognito integration
-│   ├── db/                      PostgreSQL connection and queries
-│   ├── storage/                 Amazon S3 integration
-│   ├── .env.example             Backend configuration template
-│   └── package.json
-├── frontend/
-│   ├── src/
-│   │   ├── pages/               Main application screens
-│   │   ├── components/          Reusable interface components
-│   │   ├── contexts/             Authentication state
-│   │   ├── hooks/               Reusable React hooks
-│   │   ├── lib/                 API clients and helpers
-│   │   └── utils/               Audio, WebSocket, and TTS utilities
-│   ├── supabase/migrations/     Database migration files
-│   ├── .env.example             Frontend configuration template
-│   └── package.json
-├── docker-compose.yml            Optional Docker setup
+├── backend/             # Express API, Cognito auth, PostgreSQL, S3, AI and interview services
+├── database/            # PostgreSQL schema for the AWS-oriented deployment
+├── frontend/             # React + Vite application
 └── README.md
 ```
 
-## Install Dependencies
+## Local development
 
-Open a terminal in the project folder.
+### Requirements
 
-### PowerShell
+- Node.js (the backend uses Node built-in `fetch`, `FormData`, and `File`; use a current Node release)
+- npm
+- PostgreSQL
+- Configured Cognito user pool, S3 bucket, Groq API key, OpenAI API key for current Whisper transcription, and ElevenLabs API key for speech output
 
-```powershell
-cd "D:\E\amazon hack\poold-main\backend"
+### Install and configure
+
+Install the frontend and backend dependencies in their respective directories:
+
+```bash
+cd frontend
 npm install
+cp .env.example .env
 
-cd "D:\E\amazon hack\poold-main\frontend"
+cd ../backend
 npm install
+cp .env.example .env
 ```
 
-### Command Prompt
+Fill in the backend and frontend environment variables described below. Configure the PostgreSQL database with the schema in `database/aws_schema.sql` as appropriate for your deployment.
 
-```bat
-cd /d "D:\E\amazon hack\poold-main\backend"
-npm install
+### Run
 
-cd /d "D:\E\amazon hack\poold-main\frontend"
-npm install
+In one terminal:
+
+```bash
+cd backend
+node index.js
 ```
 
-Important: `Push-Location` and `Pop-Location` are PowerShell commands. They do not work in Command Prompt. In Command Prompt, use `cd` instead.
+In another terminal:
 
-## Configure The Backend
+```bash
+cd frontend
+npm run dev
+```
 
-Create a file named `backend/.env` by copying `backend/.env.example`.
+The backend defaults to port `3000`. The frontend development server URL is printed by Vite. Set `FRONTEND_ORIGIN` in the backend environment to the frontend origin used locally so the API CORS policy allows it.
 
-At minimum, configure:
+## Environment variables
+
+Create local `.env` files from the example files. Do not commit credentials.
+
+### Backend (`backend/.env`)
 
 ```env
 PORT=3000
-FRONTEND_ORIGIN=http://localhost:8080
+FRONTEND_ORIGIN=http://localhost:5173
 
-# PostgreSQL
+GROQ_API_KEY=your_groq_api_key
+GROQ_MODEL_TEXT=openai/gpt-oss-120b
+GROQ_MODEL_FAST=openai/gpt-oss-20b
+GROQ_MODEL_VISION=qwen/qwen3.8-27b
+OPENAI_API_KEY=your_openai_api_key
+ELEVENLABS_API_KEY=your_elevenlabs_api_key
+
 DB_HOST=localhost
 DB_PORT=5432
-DB_NAME=your_database_name
+DB_NAME=poold
 DB_USER=your_database_user
 DB_PASSWORD=your_database_password
 DB_SSL=false
 
-# Amazon Cognito
 COGNITO_USER_POOL_ID=your_user_pool_id
-COGNITO_CLIENT_ID=your_cognito_client_id
-COGNITO_REGION=us-east-1
-
-# Amazon S3
+COGNITO_CLIENT_ID=your_app_client_id
+COGNITO_REGION=your_aws_region
 S3_BUCKET_NAME=your_bucket_name
-AWS_REGION=us-east-1
-AWS_ACCESS_KEY_ID=your_access_key
-AWS_SECRET_ACCESS_KEY=your_secret_key
-
-# AI services
-GROQ_API_KEY=your_groq_key
-GROQ_MODEL_TEXT=openai/gpt-oss-120b
-GROQ_MODEL_FAST=openai/gpt-oss-20b
-GROQ_MODEL_STT=whisper-large-v3-turbo
-
-# Optional
-OPENAI_API_KEY=your_openai_key
-ELEVENLABS_API_KEY=your_elevenlabs_key
+AWS_REGION=your_aws_region
 ```
 
-Never commit a real `.env` file or secret keys to Git.
+The AWS SDK uses the standard credential provider chain. `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` are read when explicitly provided, but should be supplied only through a secure local/deployment secret mechanism (or use an attached IAM role where available).
 
-## Configure The Frontend
-
-Create `frontend/.env` from `frontend/.env.example`.
+### Frontend (`frontend/.env`)
 
 ```env
 VITE_BACKEND_URL=http://localhost:3000
 VITE_API_BASE_URL=http://localhost:3000/api
-VITE_USE_ELEVENLABS_TTS=false
 ```
 
-`VITE_USE_ELEVENLABS_TTS=false` uses the browser's built-in speech. Set it to `true` only when the ElevenLabs account, API key, model, and voice are configured for API use.
+## Current status
 
-Vite reads frontend environment variables when the frontend starts or builds. Restart the frontend after changing `.env`.
+**Status:** Hackathon prototype / working demonstration. The repository contains candidate and interviewer interfaces, job-posting and interview flows, Cognito authentication, PostgreSQL-backed APIs, S3 CV uploads, Groq text-generation services, and a Socket.IO Maya interview pipeline. Working end-to-end use depends on configuring the external services and credentials listed above.
 
-## Database Setup
+## Future improvements
 
-The database migration files are in:
+- Add automated integration coverage for authentication, uploads, job workflows, and interviews.
+- Improve evaluation consistency and make generated assessments easier to audit against transcript evidence.
+- Expand recruiter workflows for application review and interview scheduling.
+- Add operational monitoring, deployment guidance, and production-oriented security hardening.
+- Review the remaining OpenAI transcription dependency and consolidate AI provider configuration if desired.
 
-```text
-frontend/supabase/migrations/
-```
+## Team and credits
 
-They create the tables and policies needed by the application, including job postings, interview sessions, CV analysis, and user-related data.
-
-The project uses the Supabase CLI to apply these migrations to a hosted database. Install or run the CLI through `npx`:
-
-```powershell
-cd frontend
-npx supabase login
-npx supabase link --project-ref YOUR_PROJECT_REF
-npx supabase db push
-```
-
-The migration process may ask for confirmation before changing the remote database. Review the migration list and confirm only when you are connected to the correct project.
-
-The application must have the database tables before requests such as these can work:
-
-```text
-GET  /job-postings
-POST /job-postings
-PATCH /job-postings/:id
-DELETE /job-postings/:id
-```
-
-If you see:
-
-```text
-Could not find the table 'public.job_postings' in the schema cache
-```
-
-apply the migrations to the configured remote database. This is a database deployment issue, not a missing SQL program on your computer.
-
-## Run The Application Locally
-
-Start the backend in one terminal:
-
-### PowerShell
-
-```powershell
-cd "D:\E\amazon hack\poold-main\backend"
-node index.js
-```
-
-### Command Prompt
-
-```bat
-cd /d "D:\E\amazon hack\poold-main\backend"
-node index.js
-```
-
-The backend normally runs at:
-
-```text
-http://localhost:3000
-```
-
-Start the frontend in a second terminal:
-
-### PowerShell
-
-```powershell
-cd "D:\E\amazon hack\poold-main\frontend"
-npm run dev -- --host 0.0.0.0
-```
-
-### Command Prompt
-
-```bat
-cd /d "D:\E\amazon hack\poold-main\frontend"
-npm run dev -- --host 0.0.0.0
-```
-
-Open the address printed by Vite, normally:
-
-```text
-http://localhost:8080
-```
-
-Use the same frontend hostname consistently. For example, do not switch randomly between `localhost:8080` and `127.0.0.1:8080` if your CORS configuration allows only one of them.
-
-## Useful Commands
-
-### Frontend
-
-```bash
-npm run dev       # Start development server
-npm run build     # Create production build
-npm run preview   # Preview production build
-npm run lint      # Run ESLint
-```
-
-### Backend
-
-```bash
-node index.js     # Start the backend
-node --check index.js
-```
-
-If port 3000 is already in use, either stop the existing backend process or start another port:
-
-```powershell
-$env:PORT=3001
-node index.js
-```
-
-Then update `VITE_BACKEND_URL` in `frontend/.env` to match.
-
-## Important API Routes
-
-The backend exposes these main routes:
-
-| Route | Purpose |
-|---|---|
-| `POST /auth/signup` | Create an account |
-| `POST /auth/login` | Log in and receive an access token |
-| `POST /auth/refresh` | Refresh a login session |
-| `POST /auth/logout` | Log out |
-| `POST /upload-cv` | Upload a CV file |
-| `POST /parse-cv-content` | Parse extracted CV text |
-| `POST /analyze-job-desc` | Analyze a job description |
-| `GET /job-postings` | List the current user's job postings |
-| `POST /job-postings` | Create a job posting |
-| `PATCH /job-postings/:id` | Update a job posting |
-| `DELETE /job-postings/:id` | Delete a job posting |
-| `POST /generate-questions` | Generate interview questions |
-| `POST /transcribe-audio` | Transcribe audio |
-| `POST /tts-labs` | Generate ElevenLabs speech when enabled |
-| `POST /generate-summary` | Generate an interview summary |
-| `POST /delete-user-account` | Delete the current account |
-| Socket.IO `/interview` | Run the live Maya interview |
-
-Most routes require an `Authorization` header:
-
-```text
-Authorization: Bearer YOUR_ACCESS_TOKEN
-```
-
-The frontend normally adds this header automatically.
-
-## Typical User Journey
-
-### Candidate
-
-1. Open the website.
-2. Create an account.
-3. Log in.
-4. Upload a CV.
-5. Review or enter a job description.
-6. Start an interview.
-7. Answer by voice or text.
-8. Review the transcript and summary.
-
-### Interviewer
-
-1. Create an interviewer account.
-2. Log in.
-3. Open Manage Jobs.
-4. Create a job posting.
-5. Browse interview data and candidate results.
-
-## Troubleshooting
-
-### The backend says `EADDRINUSE`
-
-Another process is already using port 3000. Stop that process or choose another port. Do not start multiple backends on the same port.
-
-### The browser says `Failed to fetch`
-
-Check all of the following:
-
-- The backend is running.
-- `VITE_BACKEND_URL` points to the backend address.
-- The frontend was restarted after changing `.env`.
-- The backend's `FRONTEND_ORIGIN` matches the browser address.
-- The browser is using `localhost` or `127.0.0.1` consistently.
-
-### Job postings cannot be found
-
-Apply the database migrations and make sure the backend is connected to the correct database. The frontend page does not create database tables automatically.
-
-### CV parsing fails
-
-Check that:
-
-- The CV is a supported file type, usually PDF.
-- S3 credentials and bucket configuration are correct.
-- `GROQ_API_KEY` is configured.
-- The backend is running.
-- The browser Network tab shows a successful `/upload-cv` request followed by `/parse-cv-content`.
-
-### Maya repeats a question
-
-Check that the microphone is working and that the browser grants microphone permission. The WebSocket fallback pauses microphone recording while Maya speaks so Maya's own voice is not sent back as the candidate's response.
-
-### Maya has no voice
-
-The default setting uses browser speech. Check that the browser is not muted and that the page has permission to play audio. ElevenLabs free accounts may reject library voices with a payment-required response.
-
-### The browser shows a TypeScript or build error
-
-Run:
-
-```bash
-cd frontend
-npm run build
-```
-
-Read the first error in the output. Warnings about large bundles or outdated Browserslist data do not necessarily prevent the application from running.
-
-## Security Notes
-
-- Do not commit `.env` files.
-- Do not expose Cognito secrets, database passwords, AWS keys, Groq keys, OpenAI keys, or ElevenLabs keys.
-- Rotate any secret that has been pasted into a public issue, chat, screenshot, or repository.
-- Keep authentication and ownership checks in the backend and database, not only in frontend code.
-- Use HTTPS and secure cookie settings in production.
-- Use separate development and production credentials.
-
-## Production Checklist
-
-Before deploying:
-
-- Set production frontend and backend URLs.
-- Use HTTPS for both frontend and backend.
-- Configure production CORS origins.
-- Configure Cognito production settings.
-- Configure PostgreSQL SSL as required by the provider.
-- Configure S3 bucket permissions and CORS.
-- Apply all database migrations.
-- Confirm RLS and ownership policies.
-- Set production AI provider keys as deployment secrets.
-- Test signup, login, refresh, logout, CV upload, job posting creation, and one complete interview.
-- Check browser Network and Application tabs for failed requests and missing session data.
-
-## License
-
-This project currently uses the license information defined in the package metadata. Confirm the intended license with the project owner before publishing or distributing the application.
+Built and adapted by the Poold hackathon team. Individual contributor names are not specified in the repository.
