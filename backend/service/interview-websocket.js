@@ -14,6 +14,8 @@ const allowedOrigins = new Set([
   process.env.FRONTEND_ORIGIN,
   'http://localhost:8080',
   'http://127.0.0.1:8080',
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
 ].filter(Boolean));
 
 function applyCors(req, res) {
@@ -59,6 +61,10 @@ async function logSttFailure(resp) {
   try {
     body = await resp.text();
   } catch  {}
+  if (resp.status === 400 && (body.includes('invalid_media_file') || body.includes('could not process file'))) {
+    console.warn('⚠️ STT skipped unparseable audio fragment (400 invalid_media_file)');
+    return;
+  }
   console.error('❌ STT failed', {
     status: resp.status,
     statusText: resp.statusText,
@@ -95,7 +101,10 @@ function setupWebSocketHandlers(io) {
     try {
       const authHeader = socket.handshake.auth?.token || socket.handshake.headers?.authorization;
       if (!authHeader) {
-        return next(new Error('Authentication error: Missing token'));
+        // Maya is available from the public /maya route. Keep authenticated
+        // sessions supported, but allow anonymous interview sessions too.
+        socket.user = { id: null, email: null, anonymous: true };
+        return next();
       }
 
       const token = authHeader.replace(/^Bearer\s+/i, '');
@@ -145,7 +154,7 @@ function setupWebSocketHandlers(io) {
   });
 
   nsp.on('connection', async (socket) => {
-    if (!socket.user || !socket.user.id) {
+    if (!socket.user) {
       socket.disconnect(true);
       return;
     }
@@ -320,8 +329,27 @@ ${currentFollowUpCount < MAX_FOLLOW_UPS_PER_QUESTION ? `You can ask ${MAX_FOLLOW
         const data = await resp.json();
         console.log('🧠 Maya Groq response generated:', data);
         const mayaResponse = data?.choices?.[0]?.message?.content ?? '';
-        const match = mayaResponse.match(/(.*?)\[\[END_QUESTION\]\]/s);
-        const questionText = (match ? match[1] : mayaResponse).trim();
+        let questionText = mayaResponse.trim();
+        try {
+          const parsed = JSON.parse(mayaResponse);
+          if (parsed && typeof parsed.text === 'string' && parsed.text.trim()) {
+            questionText = parsed.text.trim();
+          }
+        } catch {
+          const match = mayaResponse.match(/(.*?)\[\[END_QUESTION\]\]/s);
+          const raw = match ? match[1] : mayaResponse;
+          questionText = raw.replace(/^\{.*?"text":\s*"([^"]+)".*?\}$/s, '$1').trim();
+        }
+
+        if (!questionText) {
+          const fallbackQuestions = [
+            "Tell me about yourself and your recent experience.",
+            "Which recent project best shows your impact?",
+            "What technical skill would you most like to use in this role?",
+          ];
+          questionText = fallbackQuestions[Math.min(mainQuestionCount, fallbackQuestions.length - 1)];
+          console.warn('Maya returned empty text; using fallback question:', questionText);
+        }
 
         conversationHistory.push({
           role: 'assistant',
@@ -366,31 +394,78 @@ ${currentFollowUpCount < MAX_FOLLOW_UPS_PER_QUESTION ? `You can ask ${MAX_FOLLOW
       }
     }
 
-    // ---- STT processing using OpenAI Whisper ----
+    async function transcribeAudio(file, language) {
+      const providers = [
+        process.env.GROQ_API_KEY && {
+          name: 'Groq',
+          url: 'https://api.groq.com/openai/v1/audio/transcriptions',
+          key: process.env.GROQ_API_KEY,
+          model: process.env.GROQ_MODEL_STT || 'whisper-large-v3-turbo'
+        },
+        process.env.OPENAI_API_KEY && {
+          name: 'OpenAI',
+          url: 'https://api.openai.com/v1/audio/transcriptions',
+          key: process.env.OPENAI_API_KEY,
+          model: 'whisper-1'
+        }
+      ].filter(Boolean);
+
+      let lastError;
+      for (const provider of providers) {
+        const form = new FormData();
+        form.append('file', new Blob([file.data], { type: file.type }), file.name);
+        form.append('model', provider.model);
+        if (language) form.append('language', language);
+
+        try {
+          const response = await fetch(provider.url, {
+            method: 'POST',
+            headers: { Authorization: 'Bearer ' + provider.key },
+            body: form
+          });
+          if (response.ok) {
+            console.log(`✅ ${provider.name} transcription succeeded`);
+            return response.json();
+          }
+          lastError = new Error(`${provider.name} transcription failed (${response.status})`);
+          await logSttFailure(response);
+        } catch (error) {
+          lastError = error;
+          console.error(`❌ ${provider.name} transcription request failed:`, error);
+        }
+      }
+      throw lastError || new Error('No transcription provider configured');
+    }
+
+    // ---- STT processing using Groq Whisper ----
+    let headerChunk = null;
+
     async function processAccumulated(force = false) {
       if (processing || accumulatedChunks.length === 0) return;
       const currentCodec = audioCodec;
 
-      if (!force) {
-        if (currentCodec === 'pcm16') {
-          const ms = bufferedMs();
-          if (ms < MIN_WINDOW_MS) return;
-        } else {
-          if (accumulatedBytes < MIN_BYTES_OPUS) return;
-        }
+      let merged = Buffer.concat(accumulatedChunks);
+
+      // Require at least ~3KB of data before sending unless forced
+      if (!force && merged.length < 3000) return;
+
+      if (merged.length < 500) {
+        accumulatedChunks = [];
+        accumulatedBytes = 0;
+        return;
       }
 
       processing = true;
 
       try {
-        const openAIApiKey = process.env.OPENAI_API_KEY;
-        if (!openAIApiKey) {
-          console.error('❌ OPENAI_API_KEY not configured');
-          processing = false;
-          return;
+        // Prepend container header if WebM Opus to ensure valid media file structure
+        if (currentCodec === 'webm-opus' && headerChunk && headerChunk.length > 0) {
+          const hasEbmlHeader = merged.length >= 4 && merged[0] === 0x1A && merged[1] === 0x45 && merged[2] === 0xDF && merged[3] === 0xA3;
+          if (!hasEbmlHeader) {
+            merged = Buffer.concat([headerChunk, merged]);
+          }
         }
 
-        const merged = Buffer.concat(accumulatedChunks);
         accumulatedChunks = [];
         accumulatedBytes = 0;
 
@@ -409,35 +484,8 @@ ${currentFollowUpCount < MAX_FOLLOW_UPS_PER_QUESTION ? `You can ask ${MAX_FOLLOW
           file = { data: merged, name, type };
         }
 
-        const form = new FormData();
-        const blob = new Blob([file.data], { type: file.type });
-        form.append('file', blob, file.name);
-        form.append('model', 'whisper-1');
-        if (language) form.append('language', language);
+        const result = await transcribeAudio(file, language);
 
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 60_000);
-
-        const resp = await fetch('https://api.openai.com/v1/audio/transcriptions', {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${openAIApiKey}`
-          },
-          body: form,
-          signal: controller.signal
-        }).finally(() => clearTimeout(timeout));
-
-        if (!resp.ok) {
-          await logSttFailure(resp);
-          writeJSON(socket, {
-            type: 'error',
-            message: 'Transcription failed'
-          });
-          processing = false;
-          return;
-        }
-
-        const result = await resp.json();
         const text = (result?.text || '').trim();
 
         if (text) {
@@ -573,8 +621,8 @@ ${currentFollowUpCount < MAX_FOLLOW_UPS_PER_QUESTION ? `You can ask ${MAX_FOLLOW
       } catch  {}
     }, 30_000);
 
-    // ---- Socket.io Events ----
-    socket.on('connect', async () => {
+    // Generate the greeting after the namespace connection is established.
+    (async () => {
       console.log('📞 Socket.io connected', { sessionId });
 
       const first = await generateMayaResponse();
@@ -595,11 +643,20 @@ ${currentFollowUpCount < MAX_FOLLOW_UPS_PER_QUESTION ? `You can ask ${MAX_FOLLOW
           data: { question: fallback, isGreeting: true }
         });
       }
+    })().catch((err) => {
+      console.error('❌ Error generating initial interview question:', err);
+      writeJSON(socket, {
+        type: 'error',
+        message: 'Unable to start the interview'
+      });
     });
 
     socket.on('audio', async (data) => {
       try {
         if (Buffer.isBuffer(data)) {
+          if (!headerChunk && data.byteLength > 0) {
+            headerChunk = data;
+          }
           accumulatedChunks.push(data);
           accumulatedBytes += data.byteLength;
 

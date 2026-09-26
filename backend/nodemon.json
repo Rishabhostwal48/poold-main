@@ -1,0 +1,19 @@
+{
+  "watch": [
+    "index.js",
+    "auth/",
+    "db/",
+    "middleware/",
+    "service/",
+    "storage/"
+  ],
+  "ext": "js,json",
+  "ignore": [
+    "node_modules/",
+    "*.log",
+    ".env",
+    "temp/",
+    "uploads/"
+  ],
+  "delay": "500"
+}

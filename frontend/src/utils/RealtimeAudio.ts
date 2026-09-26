@@ -1,9 +1,11 @@
 /**
  * RealtimeAudio - WebSocket-based interview system with MediaRecorder + Whisper transcription
  */
+import { io, Socket } from "socket.io-client";
+import { getAccessToken } from "@/lib/backendAuth";
 
 export class RealtimeChat {
-  private ws: WebSocket | null = null;
+  private ws: Socket | null = null;
   private isConnected = false;
   private mediaRecorder: MediaRecorder | null = null;
   private stream: MediaStream | null = null;
@@ -32,8 +34,14 @@ export class RealtimeChat {
       // Connect to WebSocket
       const PROJECT_REF = "sxfjoqvwtjsiskqwftln";
       const ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN4ZmpvcXZ3dGpzaXNrcXdmdGxuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTgwMjIxMzcsImV4cCI6MjA3MzU5ODEzN30.-XKr81Op91guPTO604XqAMciSb6zYl30TAsujeGKqW4";
-      const wsUrl = import.meta.env.VITE_WEBSOCKET_URL;
-      this.ws = new WebSocket(wsUrl, ["jwt", ANON]);
+      const configuredUrl = import.meta.env.VITE_WEBSOCKET_URL || "http://localhost:3000";
+      const baseUrl = configuredUrl.replace(/^ws(s?):\/\//, "http$1://").replace(/\/+$/, "");
+      const token = getAccessToken();
+      this.ws = io(`${baseUrl}/interview`, {
+        auth: token ? { token } : undefined,
+        transports: ["websocket"],
+        autoConnect: false,
+      });
 
       return new Promise<void>((resolve, reject) => {
         if (!this.ws) {
@@ -41,41 +49,41 @@ export class RealtimeChat {
           return;
         }
 
-        this.ws.onopen = () => {
+        const timeout = window.setTimeout(() => {
+          this.ws?.disconnect();
+          reject(new Error('WebSocket connection timeout'));
+        }, 10000);
+
+        this.ws.on("connect", () => {
+          clearTimeout(timeout);
           console.log("✅ WebSocket connected");
           this.isConnected = true;
           // Notify the UI that we're connected
           this.onMessage({ type: "connected" });
           resolve();
-        };
+        });
 
-        this.ws.onmessage = (event) => {
+        this.ws.on("message", (message: string) => {
           try {
-            const message = JSON.parse(event.data);
-            this.onMessage(message);
+            this.onMessage(JSON.parse(message));
           } catch (error) {
             console.error("❌ Error parsing WebSocket message:", error);
           }
-        };
+        });
 
-        this.ws.onclose = (event) => {
-          console.log("🔌 WebSocket closed:", event.code, event.reason);
+        this.ws.on("disconnect", (reason) => {
+          console.log("🔌 WebSocket closed:", reason);
           this.isConnected = false;
           this.onMessage({ type: "disconnected" });
-        };
+        });
 
-        this.ws.onerror = (error) => {
+        this.ws.on("connect_error", (error) => {
+          clearTimeout(timeout);
           console.error("❌ WebSocket error:", error);
-          this.onMessage({ type: "error", message: "WebSocket connection error" });
+          this.onMessage({ type: "error", message: error.message || "WebSocket connection error" });
           reject(error);
-        };
-
-        // Reject after timeout
-        setTimeout(() => {
-          if (!this.isConnected) {
-            reject(new Error('WebSocket connection timeout'));
-          }
-        }, 10000);
+        });
+        this.ws.connect();
       });
 
     } catch (error) {
@@ -122,24 +130,23 @@ export class RealtimeChat {
       });
 
       // Tell server what MIME type we'll send
-      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-        this.ws.send(JSON.stringify({ 
-          type: "meta", 
+      if (this.ws?.connected) {
+        this.ws.emit("meta", {
           mimeType, 
           language: "en" 
-        }));
+        });
       }
 
       // Clear previous chunks
       this.audioChunks = [];
 
       this.mediaRecorder.ondataavailable = (event) => {
-        if (event.data && event.data.size > 0 && this.ws?.readyState === WebSocket.OPEN) {
+        if (this.isRecording && event.data && event.data.size > 0 && this.ws?.connected) {
           // Convert to ArrayBuffer and send as binary
           event.data.arrayBuffer().then((arrayBuffer) => {
             const uint8Array = new Uint8Array(arrayBuffer);
             console.log(`🎙️ Sending audio chunk: ${uint8Array.length} bytes`);
-            this.ws!.send(uint8Array);
+            this.ws!.emit("audio", uint8Array);
           });
         }
       };
@@ -162,14 +169,14 @@ export class RealtimeChat {
       // Start recording with 500ms chunks for low latency
       this.mediaRecorder.start(500);
       // Periodically request server to process buffered audio while recording
-      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      if (this.ws?.connected) {
         // Send an initial flush to kick things off
-        this.ws.send(JSON.stringify({ type: "flush" }));
+        this.ws.emit("flush");
       }
       // Start a flush ticker every 4s to trigger transcription batches
       this.flushIntervalId = window.setInterval(() => {
-        if (this.ws && this.ws.readyState === WebSocket.OPEN && this.isRecording) {
-          this.ws.send(JSON.stringify({ type: "flush" }));
+        if (this.ws?.connected && this.isRecording) {
+          this.ws.emit("flush");
         }
       }, 4000);
       
@@ -185,6 +192,7 @@ export class RealtimeChat {
   stopRecording() {
     if (this.mediaRecorder && this.isRecording) {
       console.log("🎙️ Stopping MediaRecorder...");
+      this.isRecording = false;
       this.mediaRecorder.stop();
       this.mediaRecorder = null;
     }
@@ -202,39 +210,45 @@ export class RealtimeChat {
     }
 
     // Ask server to process whatever is buffered
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify({ type: "flush" }));
+    if (this.ws?.connected) {
+      this.ws.emit("flush");
     }
 
     this.isRecording = false;
   }
 
+  pauseRecording() {
+    if (this.mediaRecorder && this.isRecording) {
+      console.log("🎙️ Pausing recording while Maya is speaking...");
+      this.isRecording = false;
+      this.mediaRecorder.stop();
+      this.mediaRecorder = null;
+    }
+
+    if (this.flushIntervalId) {
+      clearInterval(this.flushIntervalId);
+      this.flushIntervalId = null;
+    }
+  }
+
   sendTextResponse(text: string) {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+    if (!this.ws?.connected) {
       console.error("❌ WebSocket not connected");
       return;
     }
 
     console.log("📤 Sending text response:", text);
-    this.ws.send(JSON.stringify({
-      type: "user_response",
-      data: {
-        text: text,
-        timestamp: new Date().toISOString()
-      }
-    }));
+    this.ws.emit("manual_text", { text });
   }
 
   sendNextQuestion() {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+    if (!this.ws?.connected) {
       console.error("❌ WebSocket not connected");
       return;
     }
 
     console.log("➡️ Requesting next question");
-    this.ws.send(JSON.stringify({
-      type: "next_question"
-    }));
+    this.ws.emit("flush");
   }
 
   sendMessage(text: string) {
@@ -252,7 +266,7 @@ export class RealtimeChat {
     }
 
     if (this.ws) {
-      this.ws.close();
+      this.ws.disconnect();
       this.ws = null;
     }
 

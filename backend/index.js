@@ -1,4 +1,5 @@
 const express = require('express');
+require('dotenv').config();
 const app = express();
 const http = require('http');
 const socketIo = require('socket.io');
@@ -9,6 +10,8 @@ const allowedOrigins = new Set([
   process.env.FRONTEND_ORIGIN,
   'http://localhost:8080',
   'http://127.0.0.1:8080',
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
 ].filter(Boolean));
 
 app.use(cors({

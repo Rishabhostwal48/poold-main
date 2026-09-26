@@ -43,6 +43,8 @@ const pool = new Pool({
   max: 20,                    // maximum pool size
   idleTimeoutMillis: 30000,   // close idle clients after 30 s
   connectionTimeoutMillis: 5000, // fail if no connection within 5 s
+  keepAlive: true,
+  keepAliveInitialDelayMillis: 10000,
 });
 
 // Log pool errors (but never log credentials)
